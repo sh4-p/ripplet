@@ -1,0 +1,63 @@
+# Ripplet review for pull requests.
+# Copy to .github/workflows/ripplet-review.yml in the repository to review.
+#
+# - indexes the base, applies the PR, and reviews it against the base
+# - uploads SARIF (findings appear as annotations on the PR diff)
+# - posts the Markdown report as a sticky PR comment
+# - fails the check when the review finds errors (change --fail-on to tune)
+name: Ripplet review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ripplet
+        run: pip install "ripplet[treesitter,treesitter-multilang]"
+
+      - name: Index the base
+        run: |
+          git checkout --quiet ${{ github.event.pull_request.base.sha }}
+          ripplet init . --quiet
+          ripplet index . --quiet
+          git checkout --quiet ${{ github.event.pull_request.head.sha }}
+
+      - name: Review
+        id: review
+        continue-on-error: true
+        run: |
+          ripplet review . --base ${{ github.event.pull_request.base.sha }} --format sarif --out ripplet.sarif --fail-on never
+          ripplet review . --base ${{ github.event.pull_request.base.sha }} --format markdown --out ripplet.md --fail-on error
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ripplet.sarif
+          category: ripplet
+
+      - name: Comment on the PR
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: ripplet-review
+          path: ripplet.md
+
+      - name: Fail on errors
+        if: steps.review.outcome == 'failure'
+        run: exit 1

@@ -1,0 +1,28 @@
+# Python / tooling
+__pycache__/
+*.py[co]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Ripplet index and agent configuration written by `ripplet setup`
+.ripplet/
+.claude/
+.opencode/
+.mcp.json
+opencode.json
+
+# Kept local (not part of the repository)
+tests/
+docs/architecture/
+_smoke_plan.py
+
+# Development benchmarks and evaluation harnesses (kept local)
+tools/
+**/_repos/
+project.md

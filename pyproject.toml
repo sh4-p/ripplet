@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ripplet"
+version = "0.1.0.1"
+description = "A precise, local code graph for coding agents: who calls what, what breaks, which tests to run - over MCP, CLI and a web UI"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "FSL-1.1-ALv2" }
+authors = [{ name = "Mehmet Emin Madanoglu" }]
+dependencies = []
+keywords = ["code graph", "code intelligence", "mcp", "coding agents", "claude code", "static analysis",
+            "impact analysis", "call graph", "refactoring"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/sh4-p/ripplet"
+Repository = "https://github.com/sh4-p/ripplet"
+Issues = "https://github.com/sh4-p/ripplet/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+mcp = []
+treesitter = ["tree-sitter>=0.25", "tree-sitter-javascript>=0.25", "tree-sitter-typescript>=0.23"]
+# Phase 38: deep-language grammars (all optional; absent grammars fall back
+# to honest generic-text with a warning — never silent, never deep-claimed).
+treesitter-multilang = [
+    "tree-sitter>=0.25",
+    "tree-sitter-go>=0.25",
+    "tree-sitter-rust>=0.24",
+    "tree-sitter-java>=0.23",
+    "tree-sitter-c-sharp>=0.23",
+    "tree-sitter-php>=0.24",
+    "tree-sitter-swift>=0.7",
+    "tree-sitter-kotlin>=1.1",
+    "tree-sitter-lua>=0.5",
+    "tree-sitter-cpp>=0.23",
+    "tree-sitter-c>=0.24",
+    "tree-sitter-dart>=0.1",
+    "tree-sitter-gdscript>=6.1",
+    "tree-sitter-ruby>=0.23",
+]
+watch = ["watchfiles>=1.0"]
+
+[project.scripts]
+ripplet = "ripplet.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"ripplet.ui" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110

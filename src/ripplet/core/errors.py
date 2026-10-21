@@ -1,0 +1,9 @@
+class RippletError(Exception): pass
+class ValidationError(RippletError): pass
+class StorageError(RippletError): pass
+class ExtractionError(RippletError): pass
+class QueryError(RippletError): pass
+class SecurityError(RippletError): pass
+class ConfigError(RippletError): pass
+class LockError(RippletError): pass
+class IncompleteScanError(RippletError): pass
