@@ -26,3 +26,6 @@ _smoke_plan.py
 tools/
 **/_repos/
 project.md
+
+# PyPI upload token (python -m twine upload --config-file .pypirc dist/*)
+.pypirc
