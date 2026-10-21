@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ripplet"
-version = "0.1.0.1"
+version = "0.1.0.2"
 description = "A precise, local code graph for coding agents: who calls what, what breaks, which tests to run - over MCP, CLI and a web UI"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -30,6 +30,7 @@ classifiers = [
 Homepage = "https://github.com/sh4-p/ripplet"
 Repository = "https://github.com/sh4-p/ripplet"
 Issues = "https://github.com/sh4-p/ripplet/issues"
+Funding = "https://buymeacoffee.com/neush4"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

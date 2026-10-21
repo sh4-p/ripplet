@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/pypi/pyversions/ripplet" alt="Python">
   <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue" alt="License">
   <img src="https://img.shields.io/badge/MCP-server-8A2BE2" alt="MCP">
+  <a href="https://buymeacoffee.com/neush4"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
 </p>
 
 <p align="center">
@@ -323,6 +324,11 @@ Ripplet is **source-available** under the
 - The name "Ripplet" and its logo are trademarks and are not licensed.
 
 For a commercial or team license, contact the author.
+
+## Support
+
+Ripplet is built by one person. If it saved you a few greps (or a broken
+release), you can [buy me a coffee](https://buymeacoffee.com/neush4).
 
 ## Author
 
