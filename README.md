@@ -26,6 +26,10 @@
   <a href="#license">License</a>
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/sh4-p/ripplet/main/docs/demo/ripplet-demo.gif" alt="ripplet setup, an agent answering an impact question, and the ripplet ui graph" width="860">
+</p>
+
 ---
 
 **A precise, local code graph for coding agents.** Ripplet indexes a repository

@@ -29,3 +29,7 @@ project.md
 
 # PyPI upload token (python -m twine upload --config-file .pypirc dist/*)
 .pypirc
+
+# Demo video sources (only the GIF is published)
+docs/demo/*
+!docs/demo/ripplet-demo.gif
