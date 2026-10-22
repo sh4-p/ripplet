@@ -38,7 +38,7 @@ from ..core.identifiers import canonical_edge_id, site_fingerprint
 from ..core.models import Edge
 
 METHOD = "py-call-bind"
-VERSION = "12"  # v12: conditional collection attributes, locals from typed dict/list subscripts; v11: properties, collection element types in for-loops, module globals; v10: calling a typed object types the result by its __call__; v9: unannotated receivers typed by the repo's naming convention (inferred); v8: locals of nested defs do not leak into the enclosing function; v7: rows of one call spelling merge their sites into one edge (last row won); v6: unique distinctive method names bind untyped receivers (inferred); v5: locals typed through a typed param's method return; v4: attribute chains on typed params; v3: local/loop variable types; v2: self-attribute and pytest-fixture receivers
+VERSION = "13"  # v13: `with` enters __enter__/__exit__, getattr(self, "prefix" + x) dispatch; v12: conditional collection attributes, locals from typed dict/list subscripts; v11: properties, collection element types in for-loops, module globals; v10: calling a typed object types the result by its __call__; v9: unannotated receivers typed by the repo's naming convention (inferred); v8: locals of nested defs do not leak into the enclosing function; v7: rows of one call spelling merge their sites into one edge (last row won); v6: unique distinctive method names bind untyped receivers (inferred); v5: locals typed through a typed param's method return; v4: attribute chains on typed params; v3: local/loop variable types; v2: self-attribute and pytest-fixture receivers
 _CHAIN = 4   # re-export hops followed through module import maps
 _MRO = 16    # classes visited per heritage walk
 
@@ -871,6 +871,25 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
                 tgt, via, cclass_, score_ = cands_, "unique-name", "hypothetical", 0.6
             elif cands_ and len(parts) == 3 and parts[1] not in unique_attr_blockers:
                 tgt, via, cclass_, score_ = cands_, "unique-name", "hypothetical", 0.6
+        if not tgt and len(parts) == 2 and parts[0] not in ("self", "cls", "super") \
+                and _is_protocol(parts[1]) and imported(src, mod, parts[0]) is None:
+            # `renderable.__rich_console__(..)`: a repo-defined protocol called on
+            # an untyped object reaches every class that implements it
+            impl = [i for i in _lab_count.get(parts[1], ()) if i != src][:200]
+            for t_ in impl:
+                e = Edge(canonical_edge_id(src, "dispatches", t_, row["file_path"] or "", "protocol:" + parts[1]),
+                         src, t_, "dispatches", "inferred", "hypothetical", 0.55, [], METHOD, VERSION,
+                         file_path=row["file_path"], start_line=row["start_line"],
+                         attributes={"via": "protocol-method", "call_spelling": raw[:200]})
+                if e.id not in bound_by_id:
+                    bound_by_id[e.id] = e
+                    new_edges.append((e, owners.get(row["id"], "")))
+            if impl:
+                cx.execute("INSERT OR REPLACE INTO superseded_edges VALUES(?,?)",
+                           (row["id"], canonical_edge_id(src, "dispatches", impl[0], row["file_path"] or "",
+                                                         "protocol:" + parts[1])))
+                stats["bound"] += 1
+            continue
         if not tgt or tgt == src and base_is_super(parts):
             continue
         site = site_fingerprint(raw[:200], row["file_path"] or "")
@@ -909,6 +928,61 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
         if ntype.get(nid) in ("function", "method", "test"):
             def_ids[(fp, nline.get(nid, 0))] = nid
     seen_ref = set()
+
+    def cm_class(own: str, mid: str, x):
+        """Class of the object a `with` item enters, when the graph can tell."""
+        if isinstance(x, ast.Name):
+            return var_type(own, mid, x.id, x.lineno) or param_class(own, mid, x.id)
+        if not isinstance(x, ast.Call):
+            return None
+        f = x.func
+        t_ = None
+        if isinstance(f, ast.Name):
+            t_ = imported(own, mid, f.id) or by_q.get(f"{qname.get(mid, '')}.{f.id}")
+        elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+            b = f.value.id
+            if b in ("self", "cls"):
+                c0 = enclosing_class(own)
+            else:
+                h = imported(own, mid, b)
+                if h and ntype.get(h) == "module":
+                    t_ = member(h, f.attr)
+                    c0 = None
+                else:
+                    c0 = h if h and qname.get(h) in classes else (
+                        var_type(own, mid, b, x.lineno) or param_class(own, mid, b) or fixture_type(own, b))
+            if t_ is None and c0:
+                t_ = method_on(mro(c0, True), f.attr)
+        if not t_:
+            return None
+        if qname.get(t_) in classes:
+            return t_
+        r = returns_of(t_) if ntype.get(t_) in ("function", "method") else None
+        return r[0] if r and not r[1] else None
+
+    subclasses: dict = {}
+    methods_of: dict = {}      # class qualified name -> [(method name, id)]
+
+    def prefixed_methods(c: str, pre: str) -> list:
+        if not methods_of:
+            for nid, t in ntype.items():
+                if t in ("function", "method") and "." in qname.get(nid, ""):
+                    owner_, name_ = qname[nid].rsplit(".", 1)
+                    if owner_ in classes:
+                        methods_of.setdefault(owner_, []).append((name_, nid))
+            for q in classes:
+                k = by_q.get(q)
+                for b in (bases_of(k) if k else ()):
+                    subclasses.setdefault(b, []).append(k)
+        fam, todo = set(mro(c, True)), [c]
+        while todo and len(fam) < 64:
+            for s in subclasses.get(todo.pop(), ()):
+                if s not in fam:
+                    fam.add(s)
+                    todo.append(s)
+        out = [nid for k in fam for name_, nid in methods_of.get(qname.get(k, ""), ()) if name_.startswith(pre)]
+        return out[:300]
+
     for fp, mid in mod_of_file.items():
         t = tree_of(fp)
         if t is None:
@@ -937,13 +1011,54 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
                                  own, t_, "references", "resolved", "resolved", 0.75, [], METHOD, VERSION,
                                  file_path=fp, start_line=ch.lineno, attributes={"via": "bound-method"})
                         new_edges.append((e, owners_of_file.get(fp, "")))
+                if isinstance(ch, ast.Assign) and own and isinstance(ch.value, ast.Attribute) \
+                        and isinstance(ch.value.value, ast.Name) and ch.value.value.id == "self":
+                    # `render = self.render` then `render(..)`: a method kept in a local
+                    c = enclosing_class(own)
+                    t_ = method_on(mro(c, True), ch.value.attr) if c else None
+                    if t_ and t_ != own and (own, t_) not in seen_ref:
+                        seen_ref.add((own, t_))
+                        e = Edge(canonical_edge_id(own, "references", t_, fp, "bound-method"),
+                                 own, t_, "references", "resolved", "resolved", 0.75, [], METHOD, VERSION,
+                                 file_path=fp, start_line=ch.lineno, attributes={"via": "bound-method"})
+                        new_edges.append((e, owners_of_file.get(fp, "")))
+                if isinstance(ch, (ast.With, ast.AsyncWith)) and own:
+                    # `with X(..)` / `with obj.make()` / `with lock:` runs the
+                    # context manager's __enter__/__exit__ without a visible call
+                    names_ = ("__aenter__", "__aexit__") if isinstance(ch, ast.AsyncWith) else ("__enter__", "__exit__")
+                    for item in ch.items:
+                        c = cm_class(own, mid, item.context_expr)
+                        for mname in (names_ if c else ()):
+                            t_ = method_on(mro(c, True), mname)
+                            if t_ and t_ != own and (own, t_) not in seen_ref:
+                                seen_ref.add((own, t_))
+                                e = Edge(canonical_edge_id(own, "calls", t_, fp, "with:" + mname),
+                                         own, t_, "calls", "resolved", "resolved", 0.8, [], METHOD, VERSION,
+                                         file_path=fp, start_line=ch.lineno, attributes={"via": "with-statement"})
+                                new_edges.append((e, owners_of_file.get(fp, "")))
+                if isinstance(ch, ast.Call) and own and isinstance(ch.func, ast.Name) and ch.func.id == "getattr" \
+                        and len(ch.args) >= 2 and isinstance(ch.args[0], ast.Name) and ch.args[0].id == "self":
+                    # `getattr(self, "visit_" + kind)`: every `visit_*` method of the
+                    # class, its bases and its subclasses may be the one called
+                    pre = _str_prefix(ch.args[1])
+                    c = enclosing_class(own) if pre and len(pre) >= 3 else None
+                    for t_ in (prefixed_methods(c, pre) if c else ()):
+                        if t_ != own and (own, t_) not in seen_ref:
+                            seen_ref.add((own, t_))
+                            e = Edge(canonical_edge_id(own, "dispatches", t_, fp, "getattr:" + pre),
+                                     own, t_, "dispatches", "inferred", "hypothetical", 0.6, [], METHOD, VERSION,
+                                     file_path=fp, start_line=ch.lineno,
+                                     attributes={"via": "getattr-prefix", "prefix": pre})
+                            new_edges.append((e, owners_of_file.get(fp, "")))
                 if isinstance(ch, ast.Call):
                     called.add(id(ch.func))
                 if isinstance(ch, ast.Call) and own:
                     for v in list(ch.args) + [k.value for k in ch.keywords]:
                         tgt = None
                         if isinstance(v, ast.Name):
-                            tgt = imported(own, mid, v.id) or by_q.get(f"{qname.get(mid, '')}.{v.id}")
+                            # a def nested in the caller (`key=sort_items`), then imports, then the module
+                            tgt = by_q.get(f"{qname.get(own, '')}.{v.id}") or imported(own, mid, v.id) \
+                                or by_q.get(f"{qname.get(mid, '')}.{v.id}")
                         elif isinstance(v, ast.Attribute) and isinstance(v.value, ast.Name) and v.value.id == "self":
                             c = enclosing_class(own)
                             tgt = method_on(mro(c, True), v.attr) if c else None
@@ -993,6 +1108,40 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
 
 _CONTAINERS = {"list", "List", "Sequence", "Iterable", "Iterator", "Generator", "tuple", "Tuple", "set", "Set",
                "frozenset", "Collection", "MutableSequence", "AbstractSet", "KeysView", "ValuesView"}
+
+
+# Python's own dunders: calls to these on an untyped object say nothing about
+# which repo class is meant (every class has __init__/__eq__/...)
+_BUILTIN_DUNDERS = {
+    "__init__", "__new__", "__del__", "__repr__", "__str__", "__bytes__", "__format__", "__hash__", "__bool__",
+    "__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__getattr__", "__getattribute__", "__setattr__",
+    "__delattr__", "__dir__", "__get__", "__set__", "__delete__", "__set_name__", "__init_subclass__",
+    "__class_getitem__", "__call__", "__len__", "__length_hint__", "__getitem__", "__setitem__", "__delitem__",
+    "__missing__", "__iter__", "__next__", "__reversed__", "__contains__", "__enter__", "__exit__", "__aenter__",
+    "__aexit__", "__await__", "__aiter__", "__anext__", "__copy__", "__deepcopy__", "__reduce__",
+    "__reduce_ex__", "__getstate__", "__setstate__", "__getnewargs__", "__getnewargs_ex__", "__sizeof__",
+    "__fspath__", "__index__", "__int__", "__float__", "__complex__", "__round__", "__trunc__", "__floor__",
+    "__ceil__", "__instancecheck__", "__subclasscheck__", "__subclasshook__", "__post_init__", "__html__",
+}
+
+
+def _is_protocol(name: str) -> bool:
+    return (len(name) > 4 and name.startswith("__") and name.endswith("__") and name not in _BUILTIN_DUNDERS
+            and not any(name == f"__{p}{o}__" for p in ("", "r", "i")
+                        for o in ("add", "sub", "mul", "matmul", "truediv", "floordiv", "mod", "divmod", "pow",
+                                  "lshift", "rshift", "and", "xor", "or", "neg", "pos", "abs", "invert")))
+
+
+def _str_prefix(n) -> str | None:
+    """`"visit_" + x` / `f"visit_{x}"` / `"visit_%s" % x` -> "visit_"."""
+    if isinstance(n, ast.BinOp) and isinstance(n.op, (ast.Add, ast.Mod)):
+        n = n.left
+        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            return n.value.split("%", 1)[0] if "%" in n.value else n.value
+        return _str_prefix(n) if isinstance(n, ast.BinOp) else None
+    if isinstance(n, ast.JoinedStr) and n.values and isinstance(n.values[0], ast.Constant):
+        return str(n.values[0].value)
+    return None
 
 
 def _dotted(n) -> str | None:
