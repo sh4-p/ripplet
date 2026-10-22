@@ -26,8 +26,9 @@ _GUARD_NAME = re.compile(r"^(require|authori[sz]e|ensure|assert|deny|forbid|guar
                          r"|^(check|verify)(?=[A-Z_]?(Role|Permission|Access|Owner|Admin|Auth|Can|Csrf|Token|Signature))"
                          r"|Policy|Gate")
 _INLINE = re.compile(r"\b(my_role|role|roles|is_?admin|is_?owner|isOwner|isManager|permission|can\(|cannot\(|"
-                     r"authorize|Gate::|abort_(if|unless)|403|Forbidden|Unauthorized|login_required|"
-                     r"@PreAuthorize|\[Authorize)", re.I)
+                     r"authorize|Gate::|abort_(if|unless)|403|Forbidden|Unauthorized|login_required)"
+                     # annotations start with a non-word char, so outside the \b group
+                     r"|@(PreAuthorize|PostAuthorize|Secured|RolesAllowed)\b|\[Authorize\b", re.I)
 _CALL_RELS = ("calls", "dispatches", "instantiates")
 
 
@@ -43,8 +44,17 @@ def _body(roots, rel: str, a: int, b: int, cache: dict) -> list:
                     pass
                 break
     lines = cache[rel]
-    # decorators / attributes right above the handler count too
-    return lines[max(0, a - 4):b] if lines else []
+    if not lines:
+        return []
+    # decorators / attributes right above the handler count too, but only its
+    # own: stop at the first line that is code (the previous method's body)
+    top = max(0, a - 1)
+    while top > 0 and a - top < 8:
+        s = lines[top - 1].strip()
+        if not s.startswith(("@", "[", "#[", "//", "*", "/*", "#")):
+            break
+        top -= 1
+    return lines[top:b]
 
 
 _WRITE_SQL = re.compile(r"\b(INSERT\s+(?:IGNORE\s+)?INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+[`\"\[]?(\w+)", re.I)

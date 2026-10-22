@@ -242,8 +242,23 @@ const STRICT = __STRICT__;
 const REMINDER = __REMINDER__;
 const DENY = __DENY__;
 const SOURCE = /\.(py|jsx?|tsx?|mjs|cjs|java|kts?|go|rs|cs|php|rb|lua|swift|dart|c|h|cc|cpp|hpp|scala|vue|svelte|sql)$/i;
+const SHELL_SEARCH = /(^|[;&|(]\s*)(grep|egrep|rg|ag|ack|findstr|git\s+grep|select-string|sls)\b/i;
 // keep the echoed text free of quotes, backticks and $ (it runs in the user's shell)
-const ECHO = 'echo "' + REMINDER.replace(/["`$\\]/g, "") + '" ; ';
+const quote = (s) => 'echo "' + s.replace(/["`$\\]/g, "") + '"';
+const ECHO = quote(REMINDER) + " ; ";
+const STOP = __STOP__;
+// the searched word, so the note can name the exact call to make next
+function searched(cmd) {
+  const m = cmd.match(/(?:grep|egrep|rg|ag|ack|findstr|git\s+grep|select-string|sls)\b(?:\s+-{1,2}[\w=-]+)*\s+(?:-Pattern\s+)?["']?([A-Za-z_][\w.:]*)/i);
+  return m ? m[1].split(/[.:]+/).pop() : "";
+}
+function stopNote(cmd) {
+  const w = searched(cmd);
+  const lead = w ? "Ripplet: this search was not run. Next, call the tool ripplet_explain_symbol with symbol=" + w +
+    " (its source, every caller and callee). To rename it: ripplet_rename_symbol. To change its parameters: ripplet_change_plan. "
+    : "Ripplet: this search was not run. ";
+  return quote(lead + STOP);
+}
 const state = (globalThis.__rippletGuard ??= new Map());
 const ID = "ripplet-guard-" + [...import.meta.url].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7).toString(16);
 
@@ -269,6 +284,14 @@ function decide(key, tool, args, dir) {
     st.denies = (st.denies ?? 0) + 1;
     return "deny";
   }
+  // a code search run through the shell: an echoed reminder arrives after the
+  // search already ran, so stop it instead (once by default, up to 3 if STRICT)
+  const shell = (tool === "bash" || tool === "shell") && typeof args?.command === "string";
+  if (shell && SHELL_SEARCH.test(args.command) && (st.denies ?? 0) < (STRICT ? 3 : 1)) {
+    st.denies = (st.denies ?? 0) + 1;
+    st.reminded = true;
+    return "stop";
+  }
   if ((tool === "bash" || tool === "shell") && !st.reminded && typeof args?.command === "string") {
     st.reminded = true;
     return "remind";
@@ -285,6 +308,7 @@ export default {
       const dir = ctx.location?.directory ?? process.cwd();
       const d = decide(String(event.sessionID ?? dir), String(event.tool ?? ""), event.input, dir);
       if (d === "remind") event.input = { ...event.input, command: ECHO + event.input.command };
+      if (d === "stop") event.input = { ...event.input, command: stopNote(event.input.command) };
       if (d === "deny") throw new Error(DENY);
     });
   },
@@ -295,6 +319,7 @@ export default {
       "tool.execute.before": async (input, output) => {
         const d = decide(String(input.sessionID ?? directory), String(input.tool ?? ""), output.args, directory);
         if (d === "remind") output.args.command = ECHO + output.args.command;
+        if (d === "stop") output.args.command = stopNote(output.args.command);
         if (d === "deny") throw new Error(DENY);
       },
     };
@@ -304,14 +329,21 @@ export default {
 
 
 def install_opencode_plugin(root: Path, strict: bool) -> Path:
+    import re
     from .agent_hooks import DENY, LOAD, REMINDER
-    deny = DENY.replace(LOAD, "The tools are ripplet_task_context, ripplet_explain_symbol, ripplet_get_neighbors, "
-                              "ripplet_analyze_change_impact, ripplet_change_plan, ripplet_rename_symbol and ripplet_check_change.")
-    deny = deny.replace("Ripplet (strict)", "Ripplet (strict, OpenCode)").replace(
-        "task_context", "ripplet_task_context").replace("explain_symbol", "ripplet_explain_symbol").replace(
-        "list_routes", "ripplet_list_routes")
+    # OpenCode names MCP tools <server>_<tool>: ripplet_task_context, ...
+    names = re.compile(r"(?<!ripplet_)\b(task_context|explain_symbol|get_neighbors|analyze_change_impact|"
+                       r"list_routes|rename_symbol|change_plan|feature_slice|check_change)\b")
+    deny = names.sub(r"ripplet_\1", DENY.replace(" " + LOAD, "")).replace(
+        "Ripplet (strict)", "Ripplet (strict, OpenCode)")
+    # a shell search is not failed but replaced by this note, so the run goes on
+    stop = ("Other tools: ripplet_task_context (start of a task), ripplet_get_neighbors (who calls X), "
+            "ripplet_list_routes (endpoints and access checks), ripplet_check_change (after editing). "
+            "Rerun the search only for plain text (strings, config keys, messages)."
+            + ("" if not strict else " Shell searches of the code are skipped until a ripplet_* tool has run."))
     js = (_PLUGIN_JS.replace("__STRICT__", "true" if strict else "false")
-          .replace("__REMINDER__", json.dumps(REMINDER)).replace("__DENY__", json.dumps(deny)))
+          .replace("__REMINDER__", json.dumps(REMINDER)).replace("__DENY__", json.dumps(deny))
+          .replace("__STOP__", json.dumps(stop)))
     for d in OPENCODE_PLUGIN_DIRS:
         (root / d).mkdir(parents=True, exist_ok=True)
         (root / d / "ripplet.js").write_text(js, encoding="utf-8")
