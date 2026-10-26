@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -182,6 +183,71 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
         if 1 <= len(files) <= 8:
             for fp in files:
                 uses_ext[fp] += 1
+    # A name the task writes as code that no symbol carries (`explain_symbol`: a string a dispatcher
+    # branches on): the code to change is where that string is used. Only when a few places use it.
+    sites: dict = {}
+    lit_names = [n for n in sorted(exact - defined)
+                 if len(n) >= 5 and ("_" in n.strip("_") or re.search(r"[a-z][A-Z]", n))][:3]
+    if lit_names:
+        rows_by_file = defaultdict(list)
+        for r_ in rows:
+            rows_by_file[r_[4]].append(r_)
+        lit_rx = {n: re.compile(r"""["'`]""" + re.escape(n) + r"""["'`]""") for n in lit_names}
+        lit_found: dict = defaultdict(dict)
+        deadline = time.monotonic() + 1.0       # a huge repo must not make this call slow
+        for fp_, syms in rows_by_file.items():
+            if time.monotonic() > deadline:
+                break
+            if _TEST_RX.search(fp_ or ""):
+                continue
+            text = ""
+            for root_ in roots:
+                path_ = Path(root_) / fp_
+                if path_.is_file():
+                    try:
+                        if path_.stat().st_size <= 300_000:
+                            text = path_.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        pass
+                    break
+            if not text:
+                continue
+            for n, rx in lit_rx.items():
+                for m in rx.finditer(text):
+                    line = text.count("\n", 0, m.start()) + 1
+                    inside = [s for s in syms if s[5] and s[5] <= line <= (s[6] or s[5])]
+                    if inside:
+                        lit_found[n][min(inside, key=lambda s: (s[6] or s[5]) - s[5])[0]] = 1
+        for ids in lit_found.values():
+            if 1 <= len(ids) <= 5:
+                for i in ids:
+                    sites[i] = sites.get(i, 0) + 1
+    # Symbols between two things the task names (`_resolve`: called by the dispatcher the task points at,
+    # and calls `search_symbols`, which it names) are where such a change usually goes.
+    by_label = defaultdict(list)
+    for r_ in rows:
+        if r_[2] in exact and len(r_[2]) >= 5:
+            by_label[r_[2]].append(r_[0])
+    anchors = {i for ids in by_label.values() if len(ids) <= 3 for i in ids} | set(sites)
+    anc = sorted(anchors)[:40]
+    near: dict = defaultdict(set)
+    if anc:
+        ph = ",".join("?" * len(anc))
+        for s_, t_ in cx.execute(
+                f"SELECT source, target FROM edges WHERE relation IN ('calls','instantiates','references','dispatches') "
+                f"AND (source IN ({ph}) OR target IN ({ph}))", anc + anc):
+            if s_ in anchors:
+                near[t_].add(s_)
+            if t_ in anchors:
+                near[s_].add(t_)
+    # a call on a receiver the index could not type (`store.search_symbols(..)`) is not an edge, but the
+    # method name it spells is still a weak tie to the symbol the task names
+    for lab, ids in by_label.items():
+        if len(ids) <= 3:
+            for (s_,) in cx.execute("SELECT DISTINCT source FROM edges WHERE relation='calls_unresolved' "
+                                    "AND (target LIKE ? OR target LIKE ?) LIMIT 400", (f"%.{lab}", f"%:{lab}")):
+                near[s_].add("~" + lab)
+    bridge = {i: len(a) for i, a in near.items() if i not in anchors and len(a) >= 2}
     scored = []
     for nid, typ, lab, qn, fp, sl, el in rows:
         lp = set(_parts(lab))
@@ -194,7 +260,9 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
         mod = (fp or "").rsplit(".", 1)[0].replace("/", ".")
         mod_hit = any(mod.endswith(".".join(d)) for d in dotted)
         ext_use = min(uses_ext.get(fp, 0), 2)
-        if not (hit_l or hit_q or hit_f or is_exact or mod_hit or ext_use):
+        site = sites.get(nid, 0)
+        br = bridge.get(nid, 0)
+        if not (hit_l or hit_q or hit_f or is_exact or mod_hit or ext_use or site or br):
             continue
         cover = len((lp | qp | fpp) & tset)
         score = 3.0 * hit_l + 1.5 * hit_q + 1.0 * hit_f + 2.0 * (cover - 1) + 0.6 * math.log1p(users.get(nid, 0))
@@ -207,6 +275,10 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
         if mod_hit:
             score += 6.0
         score += 8.0 * ext_use
+        if site:
+            score += 9.0
+        if br:
+            score += min(5.0 + 2.0 * (br - 2), 9.0)
         if _AUX_RX.search(fp or ""):
             score -= 3.0
         if typ in ("class", "interface", "struct", "record", "trait"):
