@@ -369,8 +369,9 @@ def check_change(cfg, base: str | None = None, depth: int = 2, reindex: bool = T
                                      "code": code_line(roots, f, ln)})
 
     # ---- pattern completeness
-    gaps = _pattern_gaps(g, roots, changed_ids, set(added_q) | {q for q in after if after[q]["id"] in changed_ids},
-                         after, max_items)
+    # only symbols the change *added* are new helpers: an existing function whose body was edited
+    # (`call_tool`) is not one, and its name's words would match unrelated code
+    gaps = _pattern_gaps(g, roots, changed_ids, set(added_q), after, max_items)
     replaced = _replacement_gaps(g, roots, before, before_callees, after, set(added_q), rels, DEFINITE_CAP)
 
     # ---- dependents (impact) and tests
@@ -410,7 +411,7 @@ def check_change(cfg, base: str | None = None, depth: int = 2, reindex: bool = T
         "pattern_gaps": gaps, "replacement_gaps": replaced, "http_callers": http_callers[:max_items],
         "dependents": [{"symbol": n["qn"], "at": f"{n['file']}:{n['line']}"} for n in dependents[:max_items]],
         "dependents_total": len(dependents),
-        "tests": _test_commands(g, tests, roots),
+        "tests": dict(_test_commands(g, tests, roots), unindexed=_unindexed_test_dirs(cx, roots)),
     })
     # architecture rules (ripplet.arch.yaml) broken in the changed files
     from .rules import check_rules
@@ -700,6 +701,25 @@ def _test_commands(g, tests: set, roots) -> dict:
             "total": len(tests), "commands": cmds}
 
 
+_TEST_DIRS = ("tests", "test", "spec", "specs", "__tests__", "e2e")
+
+
+def _unindexed_test_dirs(cx, roots) -> list:
+    """Test folders that hold files on disk but none in the index (usually .gitignore'd). "0 tests reach
+    the change" is then not a finding, and the agent must be told so."""
+    out = []
+    for r in roots:
+        for d in _TEST_DIRS:
+            p = Path(r) / d
+            if d in out or not p.is_dir() or not any(f.is_file() for f in p.rglob("*")):
+                continue
+            row = cx.execute("SELECT 1 FROM nodes WHERE type='file' AND (file_path LIKE ? OR file_path LIKE ?) LIMIT 1",
+                             (d + "/%", "%:" + d + "/%")).fetchone()
+            if not row:
+                out.append(d)
+    return out
+
+
 def _rel_to_pkg(roots, rel: str) -> str:
     """Path relative to the nearest package.json (vitest runs from there)."""
     for r in roots:
@@ -790,6 +810,9 @@ def _pattern_gaps(g, roots, changed_ids, changed_q, after, max_items) -> list:
             ids = {t for t in _IDENT_ANY.findall(body) if t not in _STOP}
             hit = sorted(t for t in ids if concept & {w.lower() for w in _words(t)})
             if len(hit) < 2:
+                continue
+            # a helper named by two words (`call_tool`) is not shared by code that only has one of them
+            if len(concept) >= 2 and not concept <= {w.lower() for t in hit for w in _words(t)}:
                 continue
             cands.append((len(hit), nid, hit))
         # a missed place usually sits in a file the change did not touch at all
@@ -889,7 +912,9 @@ def _summary(r: dict) -> str:
         parts.append(f"{len(r['rule_violations'])} architecture rule violations")
     if r.get("unrelated_changes"):
         parts.append(f"{len(r['unrelated_changes'])} changed files unrelated to the task")
-    parts.append(f"{r['dependents_total']} dependents, {r['tests']['total']} tests reach the change")
+    unindexed = r["tests"].get("unindexed") or []
+    parts.append(f"{r['dependents_total']} dependents, {r['tests']['total']} tests reach the change"
+                 + (f" (NOT counted: {', '.join(d + '/' for d in unindexed)} is not indexed)" if unindexed else ""))
     return "; ".join(parts) + "."
 
 
@@ -943,6 +968,9 @@ def render_text(r: dict) -> str:
     sec(f"Dependents outside the change ({r['dependents_total']})",
         [f"- {d['symbol']} @ {d['at']}" for d in r["dependents"][:15]])
     t = r["tests"]
+    sec("NOTE - test folders the index does not contain",
+        [f"- {d}/ has files on disk but none in the index (git-ignored?), so its tests are not counted; "
+         f"run the ones that cover your change yourself" for d in t.get("unindexed") or []])
     sec(f"Tests that reach the change ({t['total']})",
         [f"- {x['file']}: {', '.join(x['tests'])}" for x in t["files"][:20]] + (["Run:"] + [f"  {c}" for c in t["commands"]] if t["commands"] else []))
     sec("Changed symbols", [f"- {c['symbol']} @ {c['at']}" for c in r["changed_symbols"][:20]])
