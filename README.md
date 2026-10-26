@@ -200,7 +200,9 @@ without, both ending with the same file. One run each.
 Moving a function to a new module (`guess_filename` in requests, with its imports and two importers): $0.09 and 11 turns
 with `move_symbol` against $0.23 and 28 turns without; both ended with working imports and passing tests. One run each.
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
-(they use a name from their old module), none broke.
+(they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
+the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and
+still import, 34 refused (module-level code that runs the symbol, a conditional import, a method), none broke.
 
 Answer quality, on the six "explain how X works" tasks, scored against key facts
 (function names, files, settings) checked in each repository's source: without
@@ -290,7 +292,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
-| `move_symbol` | moves a top-level Python function or class to another module in one call: the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
+| `move_symbol` | moves top-level Python functions or classes to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
 | `change_signature` | adds, removes or reorders parameters on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name` / `reorder_params=[names]`, `dry_run`; a reorder permutes positional arguments, leaves named ones alone and lists calls it cannot prove); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |

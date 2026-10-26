@@ -56,7 +56,7 @@ TOOL_DEFS = [
 # agent need not open a whole file only to be allowed to edit it. Not part of the default tool list.
 SANDBOX_TOOLS = ("read_code", "edit_code", "write_code")
 TOOL_DEFS.append(
- {"name":"move_symbol","description":"Move a top-level Python function or class to another module: cuts it, pastes it with the imports it needs, rewrites `from old import name` everywhere, keeps a re-export where something still needs it. One call, all files or none.","inputSchema":{"type":"object","properties":{"symbol":{"type":"string"},"to_file":{"type":"string","description":"workspace path of the module to move it to (created when missing)"},"dry_run":{"type":"boolean"}},"required":["symbol","to_file"]}})
+ {"name":"move_symbol","description":"Move top-level Python functions/classes (comma separated move together) to another module: cuts it, pastes it with the imports it needs, rewrites `from old import name` everywhere, keeps a re-export where something still needs it. One call, all files or none.","inputSchema":{"type":"object","properties":{"symbol":{"type":"string"},"to_file":{"type":"string","description":"workspace path of the module to move it to (created when missing)"},"with_dependencies":{"type":"boolean","description":"also move the functions, classes and constants of the old module that the symbol needs (otherwise a symbol that needs them is refused)"},"dry_run":{"type":"boolean"}},"required":["symbol","to_file"]}})
 TOOL_DEFS.append(
  {"name":"change_signature","description":"Add, remove or reorder the parameters of a function/method: edits its declaration (and overrides) and every call site the graph proves, in one call.","inputSchema":{"type":"object","properties":{"symbol":{"type":"string"},"add_param":{"type":"object","properties":{"decl":{"type":"string","description":"the parameter as the declaration spells it, e.g. `retries: Int = 0`"},"value":{"type":"string","description":"what every call site passes; omit where the default covers them"},"position":{"type":"integer","description":"0-based; default last"}},"required":["decl"]},"remove_param":{"type":"string","description":"name of the parameter to drop"},"reorder_params":{"type":"array","items":{"type":"string"},"description":"EVERY parameter name in the new order; call sites are permuted to match"},"dry_run":{"type":"boolean"}},"required":["symbol"]}})
 TOOL_DEFS.extend([
@@ -726,7 +726,8 @@ def call_tool(store, cfg, name: str, args: dict):
         return _rn(store, cfg, args["symbol"], args.get("new_name") or "", apply=not args.get("dry_run"))
     if name=="move_symbol":
         from ..change.move import move_symbol as _mv
-        return _mv(store, cfg, args["symbol"], args.get("to_file") or "", apply=not args.get("dry_run"))
+        return _mv(store, cfg, args["symbol"], args.get("to_file") or "", apply=not args.get("dry_run"),
+                   with_dependencies=bool(args.get("with_dependencies")))
     if name=="change_signature":
         from ..change.signature import change_signature as _cs
         return _cs(store, cfg, args["symbol"], add_param=args.get("add_param"),

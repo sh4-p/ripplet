@@ -187,17 +187,78 @@ def _uses_attr(tree: ast.Module, here: Path, mod_a: str, name: str) -> int:
     return n
 
 
-def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True) -> str:
-    """symbol: a top-level Python function or class. to_file: the module to move it to (created when missing)."""
+def _free_names(stmt) -> set:
+    """Names a top-level definition or constant reads from its module."""
+    loaded = {n.id for n in ast.walk(stmt) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+        return loaded - _BUILTINS
+    # what a definition evaluates where it is defined (defaults, decorators, bases, annotations) is read from the
+    # module even when a parameter of the same name shadows it inside the body
+    exprs = []
+
+    def collect(d):
+        exprs.extend(d.decorator_list)
+        if isinstance(d, ast.ClassDef):
+            exprs.extend(d.bases)
+            exprs.extend(k.value for k in d.keywords)
+            for sub in d.body:                          # methods are defined while the class body runs
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    collect(sub)
+        else:
+            ar = d.args
+            exprs.extend(ar.defaults)
+            exprs.extend(x for x in ar.kw_defaults if x is not None)
+            exprs.extend(x.annotation for x in ar.posonlyargs + ar.args + ar.kwonlyargs + [ar.vararg, ar.kwarg]
+                         if x and x.annotation)
+            if d.returns is not None:
+                exprs.append(d.returns)
+
+    collect(stmt)
+    early = {n.id for e in exprs for n in ast.walk(e) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    return ((loaded - _bound_inside(stmt)) | early) - _BUILTINS
+
+
+def _top_level(tree: ast.Module) -> dict:
+    """name -> (statement, first line including decorators) for top-level defs, classes and simple constants."""
+    out, seen = {}, set()
+    for st in tree.body:
+        if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            nm, first = st.name, min([st.lineno] + [d.lineno for d in st.decorator_list])
+        elif isinstance(st, ast.Assign) and len(st.targets) == 1 and isinstance(st.targets[0], ast.Name):
+            nm, first = st.targets[0].id, st.lineno
+        elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name) and st.value is not None:
+            nm, first = st.target.id, st.lineno
+        else:
+            continue
+        if nm in seen:
+            out.pop(nm, None)                       # defined more than once: not movable on its own
+            continue
+        seen.add(nm)
+        out[nm] = (st, first)
+    return out
+
+
+def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_dependencies: bool = False) -> str:
+    """symbol: a top-level Python function or class (several, comma separated, move together). to_file: the module to
+    move it to (created when missing). with_dependencies: also move the functions, classes and constants of the old
+    module that the symbol needs, so it can leave without making the two modules import each other."""
     cx = store.cx
     roots = [Path(str(r)) for r in (getattr(cfg, "workspace_roots", None) or ["."])]
-    node, _others = _resolve(cx, symbol)
-    if node is None:
-        return f"move_symbol: no code symbol named {symbol!r} in the index. Use search_symbols to find the exact name."
-    name = node["label"]
-    rel_a = (node["file_path"] or "").replace("\\", "/")
-    if not rel_a.endswith(".py"):
-        return "move_symbol: only Python symbols are supported for now; this one is in " + (rel_a or "an unknown file") + "."
+    wanted = [s.strip() for s in str(symbol).split(",") if s.strip()]
+    if not wanted:
+        return "move_symbol: pass the symbol to move."
+    seeds, rel_a, path_a = [], None, None
+    for sym in wanted:
+        node, _others = _resolve(cx, sym)
+        if node is None:
+            return f"move_symbol: no code symbol named {sym!r} in the index. Use search_symbols to find the exact name."
+        f = (node["file_path"] or "").replace("\\", "/")
+        if not f.endswith(".py"):
+            return "move_symbol: only Python symbols are supported for now; this one is in " + (f or "an unknown file") + "."
+        if rel_a not in (None, f):
+            return "move_symbol: the symbols to move together must be in the same file."
+        rel_a = f
+        seeds.append((node["label"], int(node["start_line"] or 0)))
     path_a = _file([str(r) for r in roots], rel_a)
     if path_a is None:
         return f"move_symbol: {rel_a} is not on disk (index out of date?)."
@@ -220,39 +281,58 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True) -> st
         tree_a = ast.parse(text_a)
     except SyntaxError as e:
         return f"move_symbol: {rel_a} does not parse ({e.msg}, line {e.lineno}); nothing was written."
-    start_line = int(node["start_line"] or 0)
-    target = None
-    for st in tree_a.body:
-        if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and st.name == name:
-            first = min([st.lineno] + [d.lineno for d in st.decorator_list])
-            if first <= start_line <= st.end_lineno:
-                target = (st, first)
-    if target is None:
-        return (f"move_symbol: {name} is not a top-level function or class of {rel_a} (methods and nested "
-                f"definitions can't be moved on their own); nothing was written.")
-    st, first = target
+    top = _top_level(tree_a)
+    group = []
+    for nm, line in seeds:
+        hit = top.get(nm)
+        if hit is None or not (hit[1] <= line <= hit[0].end_lineno) \
+                or isinstance(hit[0], (ast.Assign, ast.AnnAssign)):
+            return (f"move_symbol: {nm} is not a top-level function or class of {rel_a} (methods and nested "
+                    f"definitions can't be moved on their own); nothing was written.")
+        if nm not in group:
+            group.append(nm)
+    name = ", ".join(group)
     eol_a = _eol(text_a)
     lines_a = text_a.split("\n")
-    seg = "\n".join(l.rstrip("\r") for l in lines_a[first - 1:st.end_lineno])
 
-    # what the definition needs
+    # what the definitions need; with_dependencies pulls in what they use from the old module
     imports_a, defs_a = _module_bindings(tree_a)
-    inner = _bound_inside(st)
-    loaded = {n.id for n in ast.walk(st) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
-    free = sorted(loaded - inner - _BUILTINS - {name})
-    need_imports, blockers = [], []
-    for nm in free:
-        if nm in imports_a:
-            need_imports.append((nm,) + imports_a[nm])
-        elif nm in defs_a:
-            blockers.append(nm)
-    need_imports.sort(key=lambda t: (t[1].lineno, t[1].col_offset))
+    added_deps = []
+    while True:
+        blockers, grow = [], []
+        for nm in group:
+            for f in sorted(_free_names(top[nm][0]) - {nm}):
+                if f in group or f in imports_a or f not in defs_a:
+                    continue
+                if with_dependencies and f in top:
+                    grow.append(f)
+                elif f not in blockers:
+                    blockers.append(f)
+        grow = [g for g in dict.fromkeys(grow) if g not in group]
+        if not grow:
+            break
+        group += grow
+        added_deps += grow
     if blockers:
+        hint = "" if with_dependencies else " Pass with_dependencies=true to move what it needs along, or move it first."
         return (f"move_symbol: {name} uses {', '.join(blockers)} defined in {rel_a}; moving it would make the two "
-                f"modules import each other. Move {'it' if len(blockers) == 1 else 'them'} first (or together); "
-                f"nothing was written.")
+                f"modules import each other.{hint} nothing was written.")
+    group.sort(key=lambda n: top[n][1])
+    name = ", ".join(group)
+    need_imports = {}
+    for nm in group:
+        for f in _free_names(top[nm][0]) - {nm}:
+            if f in imports_a:
+                need_imports[f] = (f,) + imports_a[f]
+    need_imports = sorted(need_imports.values(), key=lambda t: (t[1].lineno, t[1].col_offset))
+    seg = []
+    for nm in group:
+        st, first = top[nm]
+        if seg:
+            seg += ["", ""]
+        seg += [l.rstrip("\r") for l in lines_a[first - 1:st.end_lineno]]
     new_texts: dict = {}          # path -> new text
-    notes, rewritten, attr_uses = [], [], []
+    rewritten, attr_uses = [], {}
 
     # target module
     exists_b = path_b.is_file()
@@ -260,8 +340,9 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True) -> st
     eol_b = _eol(text_b) if exists_b else eol_a
     tree_b = ast.parse(text_b) if text_b.strip() else ast.Module(body=[], type_ignores=[])
     imports_b, defs_b = _module_bindings(tree_b)
-    if name in defs_b or name in imports_b:
-        return f"move_symbol: {path_b.name} already defines or imports {name}; nothing was written."
+    clash = [n for n in group if n in defs_b or n in imports_b]
+    if clash:
+        return f"move_symbol: {path_b.name} already defines or imports {', '.join(clash)}; nothing was written."
     add_lines, tc_lines = [], []
     for nm, ist, alias, guard in need_imports:
         if nm in imports_b:
@@ -303,79 +384,87 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True) -> st
         out_b.pop(0)
     if out_b:
         out_b += ["", ""]
-    out_b += seg.split("\n")
+    out_b += seg
     new_texts[path_b] = eol_b.join(out_b) + eol_b
 
-    # old module: drop the definition, then (maybe) re-export
+    # old module: drop the definitions, then (maybe) re-export
     mod_a, mod_b = ".".join(_modname(path_a)), ".".join(_modname(path_b))
-    rest = lines_a[:first - 1] + lines_a[st.end_lineno:]
-    uses_in_a = any(isinstance(n, ast.Name) and n.id == name for st2 in tree_a.body if st2 is not st
-                    for n in ast.walk(st2))
-    in_all = False
+    rest = list(lines_a)
+    for nm in sorted(group, key=lambda n: top[n][1], reverse=True):
+        st, first = top[nm]
+        del rest[first - 1:st.end_lineno]
+    moved_stmts = {id(top[n][0]) for n in group}
+    for st2 in tree_a.body:
+        if id(st2) in moved_stmts or isinstance(st2, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef,
+                                                       ast.ClassDef, ast.Assign, ast.AnnAssign)):
+            continue
+        used = sorted({x.id for x in ast.walk(st2) if isinstance(x, ast.Name) and x.id in group})
+        if used:
+            return (f"move_symbol: module-level code in {rel_a} (line {st2.lineno}) runs {', '.join(used)} when the module "
+                    f"is imported; moving it would split that from where it is defined. Nothing was written.")
+    uses_in_a = {n for n in group if any(isinstance(x, ast.Name) and x.id == n for st2 in tree_a.body
+                                         if id(st2) not in moved_stmts for x in ast.walk(st2))}
+    in_all = set()
     for st2 in tree_a.body:
         if isinstance(st2, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__all__" for t in st2.targets):
-            in_all = any(isinstance(c, ast.Constant) and c.value == name for c in ast.walk(st2.value))
+            in_all = {n for n in group if any(isinstance(c, ast.Constant) and c.value == n for c in ast.walk(st2.value))}
 
     # the other modules
+    skip_dirs = {".venv", "venv", "node_modules", ".git", "site-packages"}
     for p in sorted(root.resolve().rglob("*.py")):
-        if p in (path_a.resolve(), path_b) or any(x in {".venv", "venv", "node_modules", ".git", "site-packages"} for x in p.parts):
+        if p in (path_a.resolve(), path_b) or any(x in skip_dirs for x in p.parts):
             continue
         try:
             txt = _read(p)
-            if name not in txt:
+            if not any(n in txt for n in group):
                 continue
             tr = ast.parse(txt)
         except (SyntaxError, OSError, ValueError):
             continue
-        n_attr = _uses_attr(tr, p, mod_a, name)
-        if n_attr:
-            attr_uses.append((p, n_attr))
-        edits = []
-        for s2 in tr.body:
-            if isinstance(s2, ast.ImportFrom) and _resolve_from(s2, p) == mod_a and any(a.name == name for a in s2.names):
-                edits.append(s2)
+        for n in group:
+            c = _uses_attr(tr, p, mod_a, n)
+            if c:
+                attr_uses.setdefault(n, []).append((p, c))
+        edits = [s2 for s2 in tr.body if isinstance(s2, ast.ImportFrom) and _resolve_from(s2, p) == mod_a
+                 and any(a.name in group for a in s2.names)]
         if not edits:
             continue
         lines = txt.split("\n")
         eol = _eol(txt)
         for s2 in sorted(edits, key=lambda s: s.lineno, reverse=True):
             ind = " " * s2.col_offset
-            mine = [al for al in s2.names if al.name == name]
-            others = [al for al in s2.names if al.name != name]
+            mine = [al for al in s2.names if al.name in group]
+            others = [al for al in s2.names if al.name not in group]
             spelled = _spell(p, mod_b, s2.level)
             moved = f"{ind}from {spelled} import " + ", ".join(
                 al.name + (f" as {al.asname}" if al.asname else "") for al in mine)
             if others:
                 old = "\n".join(lines[s2.lineno - 1:s2.end_lineno])
-                pat = re.escape(name) + r"(?:\s+as\s+\w+)?"
-                for rx in (r"(?m)^[ \t]*" + pat + r"[ \t]*,?[ \t]*\r?\n",
-                           r"\b" + pat + r"\s*,\s*",
-                           r",\s*\b" + pat + r"(?=\s*\)?\s*$)"):
-                    cut, n_sub = re.subn(rx, "", old, count=1)
-                    if n_sub:
-                        break
-                lines[s2.lineno - 1:s2.end_lineno] = cut.split("\n") + [moved]
+                for al in mine:
+                    pat = re.escape(al.name) + r"(?:\s+as\s+\w+)?"
+                    for rx in (r"(?m)^[ \t]*" + pat + r"[ \t]*,?[ \t]*\r?\n",
+                               r"\b" + pat + r"\s*,\s*",
+                               r",\s*\b" + pat + r"(?=\s*\)?\s*$)"):
+                        cut, n_sub = re.subn(rx, "", old, count=1)
+                        if n_sub:
+                            old = cut
+                            break
+                lines[s2.lineno - 1:s2.end_lineno] = old.split("\n") + [moved]
             else:
                 lines[s2.lineno - 1:s2.end_lineno] = [moved]
         new_texts[p] = eol.join(l.rstrip("\r") for l in lines)
         rewritten.append((p, len(edits)))
-    keep = uses_in_a or in_all or bool(attr_uses)
+    keep = [n for n in group if n in uses_in_a or n in in_all or n in attr_uses]
+    tmp = eol_a.join(l.rstrip("\r") for l in rest)
     if keep:
-        mod_text = f"from {mod_b} import {name}  # noqa: F401"
-        # place it after A's last import, computed on the text without the definition
-        tmp = eol_a.join(l.rstrip("\r") for l in rest)
         try:
-            tr2 = ast.parse(tmp)
-            ins = _insertion_line(tr2)
+            ins = _insertion_line(ast.parse(tmp))
         except SyntaxError:
             ins = 0
         lines_t = tmp.split(eol_a)
-        lines_t[ins:ins] = [mod_text]
-        rest_text = eol_a.join(lines_t)
-    else:
-        rest_text = eol_a.join(l.rstrip("\r") for l in rest)
-    rest_text = re.sub(r"(\r?\n){4,}", eol_a * 3, rest_text)
-    new_texts[path_a.resolve()] = rest_text
+        lines_t[ins:ins] = [f"from {mod_b} import {', '.join(keep)}  # noqa: F401"]
+        tmp = eol_a.join(lines_t)
+    new_texts[path_a.resolve()] = re.sub(r"(\r?\n){4,}", eol_a * 3, tmp)
 
     if apply:
         for p, t in new_texts.items():
@@ -383,21 +472,24 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True) -> st
             p.write_bytes(t.encode("utf-8", errors="surrogateescape"))
     rel = lambda p: str(Path(p).resolve().relative_to(root.resolve())).replace("\\", "/")
     verb = "moved" if apply else "would move"
+    n_lines = sum(top[n][0].end_lineno - top[n][1] + 1 for n in group)
     out = [f"# move_symbol: {name}" + ("" if apply else " (dry run, nothing written)"),
-           f"{verb} {name} ({st.end_lineno - first + 1} lines) from {rel_a} to {rel(path_b)}" +
-           ("" if exists_b else " (new file)")]
+           f"{verb} {name} ({n_lines} lines) from {rel_a} to {rel(path_b)}" + ("" if exists_b else " (new file)")]
+    if added_deps:
+        out.append("moved along because they need it: " + ", ".join(added_deps))
     if add_lines or tc_lines or future:
         out.append("imports added to the new module: " + "; ".join(future + add_lines + tc_lines))
     for p, n in rewritten:
         out.append(f"imports rewritten in {rel(p)}: {n}")
     if keep:
-        why = [x for x, c in (("it still uses it", uses_in_a), ("it lists it in __all__", in_all),
-                              ("other modules reach it as an attribute", bool(attr_uses))) if c]
-        out.append(f"{rel_a} keeps `from {mod_b} import {name}` because " + " and ".join(why) + ".")
-    for p, n in attr_uses:
-        out.append(f"  {rel(p)}: {n} use(s) as `{mod_a.split('.')[-1]}.{name}` still work through that import")
+        why = [x for x, c in (("it still uses them", bool(uses_in_a)), ("it lists them in __all__", bool(in_all)),
+                              ("other modules reach them as an attribute", bool(attr_uses))) if c]
+        out.append(f"{rel_a} keeps `from {mod_b} import {', '.join(keep)}` because " + " and ".join(why) + ".")
+    for n, items in attr_uses.items():
+        for p, c in items:
+            out.append(f"  {rel(p)}: {c} use(s) as `{mod_a.split('.')[-1]}.{n}` still work through that import")
     if apply:
-        out += ["", "Done: the definition, its imports and the import statements are already changed. "
+        out += ["", "Done: the definitions, their imports and the import statements are already changed. "
                     "Do NOT Read or Edit these files again to redo it.",
                 "Next: check_change to confirm nothing is left, then run the related tests."]
     return "\n".join(out)
