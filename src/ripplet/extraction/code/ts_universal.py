@@ -19,7 +19,7 @@ from ...core.identifiers import (
 )
 from ...core.provenance import make_evidence
 
-UNIV_TS_VERSION = "107"  # v107: a call chained on a new line (`d` / `.m()`) is recorded on the line of the called name, not where its receiver starts; v106: Kotlin `!f()` / `!a.f()` calls (the grammar nests the `!` inside the call) are no longer dropped; v105: a generic supertype/type path (`Base<T>`) no longer glues its type arguments into the name (Base.T); v104: Kotlin generic extension receivers (Column<T>. -> Column); v103: Kotlin `where` as a name retried like set/get; v102: PHP docblock @return class when declared mixed; v101: C# awaited Task<T> results, call markers and field qualifiers; v100: Swift chained calls located at the method name; v99: Swift implicit member calls (.m()) never on self, property initializer calls; v98: Swift closure params typed by the callee's callback type, property types, field paths; v97: Lua module-function aliases; v96: Lua functions named a.b:c / a.b.c; v95: Kotlin calls on locals/params marked local_callee; v94: Kotlin object heritage; v93: PHP container calls and (new X)->m() typed; v92: PHP calls inside arrow functions; v91: Ruby multiple-assignment, rescue and for-loop locals known; v90: Ruby bare receivers and class-body bare names as calls; v89: every #elif/#else branch (up to 3) read for calls; v88: attribute macros after class/struct blanked; v87: C/C++ retries judged by bytes under ERROR; v86: C++ params/locals/fields typed through template and qualified types; v85: C++ class members inside #if blocks; v84: C++ class field types recorded; v83: C++ operator definitions kept, qualified calls in macro bodies; v82: C++ class template specializations walked; v81: X_NAMESPACE_BEGIN macros open namespace x when x is a path directory; v80: calls in function-like macro bodies; v79: C `MACRO(name) { }` definitions named by name; v78: every #else call site kept; v77: C/C++ retry also blanks statement and template-parameter macro calls; v76: C++ member templates (template methods in class bodies); v75: directive lines kept when blanking ALL-CAPS macros; v74: C/C++ calls in #else branches kept (second fold); v73: Java final locals typed, new X() chain roots; v72: Java call sites on the method name; v71: Java enhanced-for locals, this.m() owner; v70: undeclared return types inferred from the body; v69: Rust const initializer calls, item macros accepted with a few stray bytes; v68: Rust const/static values typed, for-loops over them, dyn T + bounds; v67: call-site facts also keyed at the name line; v66: Go call sites at the method name, field-of-local markers; v65: Go field-chain and composite-literal receivers; v64: Go locals copied from package vars; v63: Go := locals marked receiver_local; v62: Go //go:build constraints recorded on the module; v61: Go embedded interfaces as inherits; v60: Go package-level variables as typed nodes; v59: Go embedded struct fields as inherits; v58: Go interface method specs as methods, type assertions and method-result markers type locals; v57: Rust `extern crate x as y` recorded as a use; v56: Rust dyn/impl Trait and Box/Rc/Arc params typed; v55: calls inside item-position Rust macros owned by the module; v54: Rust project macros with expression args parsed (per macro name, only if the file does not parse worse); v52: Rust inline `mod m { }` items qualified as <module>.m.<item>; v51: untyped locals marked receiver_local; v50: nullable unions and generic constructors type locals; v49: generic type annotations type locals; v46: module-scope locals typed; v45: locals declared inside closures typed for the enclosing symbol; v44: Kotlin infix get/set after a block; v43: Kotlin star imports recognised (`*` beside the path); v42: Kotlin retry judged by bytes under ERROR; v41: Kotlin when-guards (`is X if c ->`) no longer drop the file; v40: Swift `!x.m()` calls; v39: Swift default params optional; v38: Blade directive args as an array literal; v37: C# generic member calls (x.M<T>()); v36: calls inside Rust std expression macros (assert!, format!, ..); v35: Go package-level var/const initializer calls; self.a.b receiver paths; v34: Laravel Blade views parsed as PHP; v33: PHP locals typed by a function call, promoted ctor properties typed; v32: (located at the name) v31: Lua colon calls on expression receivers; v30: Lua module tables (`m = lazy_require { u = "a.u" }`, m.u.f()); v29: Ruby methods with params after *rest no longer crash the file; v28: Rust impls for non-nominal types (&[u8], tuples, dyn Trait); v27: Lua requires bound inside functions; v26: Java enum methods (enum_body_declarations) and enum constants with bodies; v25: Java anonymous classes in fields (named by the field), their methods and field initializer calls; v24: Ruby; v23: Go struct field types; calls through a receiver field; v22: Go import names drop /vN and .vN suffixes; v21: Lua chunk-level assignment calls, inline require(..).f(); v20: Rust nested use trees and block-scoped use; v19: PHP qualified function calls (\f(), A\f()); v18: C# constructors (<init>) and property/field/operator bodies; v17: every call site kept (occurrences); v16: PHP trait use; v15: multi-line C# qualifiers; v14: C# top-level statements; v13: C# primary-ctor params typed; v12: locals typed inside test methods; v11: C# qualified calls/new typed; v10: Kotlin soft-keyword local names retried; v9: PHP heritage inside base_clause; v8: GoogleTest/Catch2 test macros; v7: Rust same-name methods across impl blocks split; v6: C/C++ preproc fold, ERROR/extern "C"/#if descent; v4: overloads split (#overloadN), per-site unresolved ids, arity/chain/static annotations (v3: receiver typing)
+UNIV_TS_VERSION = "110"  # v110: Kotlin default argument values are walked for calls; v109: Rust `f::<T>()`, Go `f[T]()` and Swift `$0 + f()` calls are calls; v108: C# `d?.M()` and PHP `$d?->m()` calls are calls; v107: a call chained on a new line (`d` / `.m()`) is recorded on the line of the called name, not where its receiver starts; v106: Kotlin `!f()` / `!a.f()` calls (the grammar nests the `!` inside the call) are no longer dropped; v105: a generic supertype/type path (`Base<T>`) no longer glues its type arguments into the name (Base.T); v104: Kotlin generic extension receivers (Column<T>. -> Column); v103: Kotlin `where` as a name retried like set/get; v102: PHP docblock @return class when declared mixed; v101: C# awaited Task<T> results, call markers and field qualifiers; v100: Swift chained calls located at the method name; v99: Swift implicit member calls (.m()) never on self, property initializer calls; v98: Swift closure params typed by the callee's callback type, property types, field paths; v97: Lua module-function aliases; v96: Lua functions named a.b:c / a.b.c; v95: Kotlin calls on locals/params marked local_callee; v94: Kotlin object heritage; v93: PHP container calls and (new X)->m() typed; v92: PHP calls inside arrow functions; v91: Ruby multiple-assignment, rescue and for-loop locals known; v90: Ruby bare receivers and class-body bare names as calls; v89: every #elif/#else branch (up to 3) read for calls; v88: attribute macros after class/struct blanked; v87: C/C++ retries judged by bytes under ERROR; v86: C++ params/locals/fields typed through template and qualified types; v85: C++ class members inside #if blocks; v84: C++ class field types recorded; v83: C++ operator definitions kept, qualified calls in macro bodies; v82: C++ class template specializations walked; v81: X_NAMESPACE_BEGIN macros open namespace x when x is a path directory; v80: calls in function-like macro bodies; v79: C `MACRO(name) { }` definitions named by name; v78: every #else call site kept; v77: C/C++ retry also blanks statement and template-parameter macro calls; v76: C++ member templates (template methods in class bodies); v75: directive lines kept when blanking ALL-CAPS macros; v74: C/C++ calls in #else branches kept (second fold); v73: Java final locals typed, new X() chain roots; v72: Java call sites on the method name; v71: Java enhanced-for locals, this.m() owner; v70: undeclared return types inferred from the body; v69: Rust const initializer calls, item macros accepted with a few stray bytes; v68: Rust const/static values typed, for-loops over them, dyn T + bounds; v67: call-site facts also keyed at the name line; v66: Go call sites at the method name, field-of-local markers; v65: Go field-chain and composite-literal receivers; v64: Go locals copied from package vars; v63: Go := locals marked receiver_local; v62: Go //go:build constraints recorded on the module; v61: Go embedded interfaces as inherits; v60: Go package-level variables as typed nodes; v59: Go embedded struct fields as inherits; v58: Go interface method specs as methods, type assertions and method-result markers type locals; v57: Rust `extern crate x as y` recorded as a use; v56: Rust dyn/impl Trait and Box/Rc/Arc params typed; v55: calls inside item-position Rust macros owned by the module; v54: Rust project macros with expression args parsed (per macro name, only if the file does not parse worse); v52: Rust inline `mod m { }` items qualified as <module>.m.<item>; v51: untyped locals marked receiver_local; v50: nullable unions and generic constructors type locals; v49: generic type annotations type locals; v46: module-scope locals typed; v45: locals declared inside closures typed for the enclosing symbol; v44: Kotlin infix get/set after a block; v43: Kotlin star imports recognised (`*` beside the path); v42: Kotlin retry judged by bytes under ERROR; v41: Kotlin when-guards (`is X if c ->`) no longer drop the file; v40: Swift `!x.m()` calls; v39: Swift default params optional; v38: Blade directive args as an array literal; v37: C# generic member calls (x.M<T>()); v36: calls inside Rust std expression macros (assert!, format!, ..); v35: Go package-level var/const initializer calls; self.a.b receiver paths; v34: Laravel Blade views parsed as PHP; v33: PHP locals typed by a function call, promoted ctor properties typed; v32: (located at the name) v31: Lua colon calls on expression receivers; v30: Lua module tables (`m = lazy_require { u = "a.u" }`, m.u.f()); v29: Ruby methods with params after *rest no longer crash the file; v28: Rust impls for non-nominal types (&[u8], tuples, dyn Trait); v27: Lua requires bound inside functions; v26: Java enum methods (enum_body_declarations) and enum constants with bodies; v25: Java anonymous classes in fields (named by the field), their methods and field initializer calls; v24: Ruby; v23: Go struct field types; calls through a receiver field; v22: Go import names drop /vN and .vN suffixes; v21: Lua chunk-level assignment calls, inline require(..).f(); v20: Rust nested use trees and block-scoped use; v19: PHP qualified function calls (\f(), A\f()); v18: C# constructors (<init>) and property/field/operator bodies; v17: every call site kept (occurrences); v16: PHP trait use; v15: multi-line C# qualifiers; v14: C# top-level statements; v13: C# primary-ctor params typed; v12: locals typed inside test methods; v11: C# qualified calls/new typed; v10: Kotlin soft-keyword local names retried; v9: PHP heritage inside base_clause; v8: GoogleTest/Catch2 test macros; v7: Rust same-name methods across impl blocks split; v6: C/C++ preproc fold, ERROR/extern "C"/#if descent; v4: overloads split (#overloadN), per-site unresolved ids, arity/chain/static annotations (v3: receiver typing)
 
 # Language ids served here (registry mirrors ts_adapter.UNIV_LANGUAGE_IDS;
 # asserting the pair keeps table and loader from silently diverging).
@@ -1070,9 +1070,12 @@ class _GoVisitor:
     def _call(self, node, owner: str, recv=("", "")):
         fn = None
         for c in node.children:
-            if c.type in ("identifier", "selector_expression"):
+            if c.type in ("identifier", "selector_expression", "index_expression"):
                 fn = c
                 break
+        if fn is not None and fn.type == "index_expression":
+            # `f[int](x)` / `pkg.F[T](x)`: a generic instantiation, the callee is the operand
+            fn = next((g for g in fn.children if g.type in ("identifier", "selector_expression")), None)
         if fn is None:
             return
         arity = 0
@@ -1571,9 +1574,12 @@ class _RustVisitor:
         fn = None
         for c in node.children:
             if c.type in ("identifier", "scoped_identifier",
-                          "field_expression"):
+                          "field_expression", "generic_function"):
                 fn = c
                 break
+        if fn is not None and fn.type == "generic_function":
+            # `f::<T>(x)` / `d.m::<T>()`: the callee is the function before the turbofish
+            fn = next((g for g in fn.children if g.type in ("identifier", "scoped_identifier", "field_expression")), None)
         if fn is None:
             return
         if fn.type == "identifier":
@@ -1636,6 +1642,9 @@ def _clause_types(node, raw: bytes) -> list[str]:
     return out
 
 
+_SWIFT_INFIX = ("additive_expression", "multiplicative_expression", "comparison_expression",
+               "equality_expression", "conjunction_expression", "disjunction_expression",
+               "nil_coalescing_expression", "range_expression", "infix_expression")
 _ARG_NODES = ("arguments", "argument_list", "value_arguments", "call_suffix", "function_call_arguments")
 _TYPE_ARG_NODES = ("type_arguments", "type_argument_list", "generic_arguments")
 
@@ -2415,7 +2424,7 @@ class _CsVisitor:
     def _invocation(self, node, owner: str):
         fn = None
         for c in node.children:
-            if c.type in ("identifier", "member_access_expression"):
+            if c.type in ("identifier", "member_access_expression", "conditional_access_expression"):
                 fn = c
                 break
         if fn is None:
@@ -2425,6 +2434,28 @@ class _CsVisitor:
             self._edge(owner, "calls_unresolved", self._ext(base), node,
                        "structural", "deterministic", 1.0,
                        {"callee_kind": "function", "base": base})
+            return
+        if fn.type == "conditional_access_expression":
+            # `d?.M()` / `a?.b?.M()`: the receiver is what comes before `?`, the member is the last name
+            named = [c for c in fn.children if c.is_named]
+            leaf = fn
+            while leaf.child_count:
+                leaf = leaf.children[-1]
+            member = _text(leaf, self.raw, 120).split("<")[0].strip()
+            if not named or not member:
+                return
+            recv = named[0]
+            if recv.type in ("this_expression", "base_expression"):
+                self._edge(owner, "calls_unresolved", self._ext(member), node, "structural", "deterministic", 1.0,
+                           {"callee_kind": "this" if recv.type == "this_expression" else "super", "member": member})
+            elif recv.type == "identifier" and len(named) == 2:
+                base = _text(recv, self.raw, 120)
+                self._edge(owner, "calls_unresolved", self._ext(base + "." + member), node,
+                           "structural", "deterministic", 1.0,
+                           {"callee_kind": "selector", "base": base, "member": member})
+            else:
+                self._edge(owner, "calls_unresolved", self._ext(member), node, "structural", "deterministic", 1.0,
+                           {"callee_kind": "complex", "member": member})
             return
         # member_access_expression. When the receiver is itself an
         # expression (`this._m.Send()`, `GetIt().Send()`, `a.b.C()`), the
@@ -2765,7 +2796,7 @@ class _PhpVisitor:
             n = stack.pop()
             if n.type == "function_call_expression":
                 self._call(n, owner)
-            elif n.type == "member_call_expression":
+            elif n.type in ("member_call_expression", "nullsafe_member_call_expression"):
                 self._member_call(n, owner)
             elif n.type == "scoped_call_expression":
                 self._scoped_call(n, owner)
@@ -4006,6 +4037,9 @@ class _KotlinVisitor:
         for c in node.children:
             if c.type == "function_body":
                 self.bodies.append((nid, c))
+            elif c.type == "function_value_parameters" and any(g.type == "=" for g in c.children):
+                # `fun f(x: Int = g())`: a default value runs when the function is called
+                self.bodies.append((nid, c))
 
     def _property(self, node, owner: str, qn: str):
         name = ""
@@ -5009,6 +5043,10 @@ class _SwiftVisitor:
                            {"callee_kind": "complex", "member": member, "arity": ar,
                             "dot_member": True})
                 return
+            if c.type in _SWIFT_INFIX and fn is None:
+                # `$0 + f()` / `a == b.m()` parse as (`$0 + f`)(): the call belongs to the last operand
+                while c.type in _SWIFT_INFIX and c.named_child_count:
+                    c = c.named_children[-1]
             if c.type == "prefix_expression" and fn is None:
                 # `!node.modifiers.m()` parses as (!node.modifiers.m)(): the
                 # call belongs to the operand

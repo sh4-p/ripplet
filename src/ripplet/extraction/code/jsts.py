@@ -17,7 +17,7 @@ from ...core.identifiers import (
 )
 from ...core.provenance import make_evidence
 
-JSTS_VERSION = "21"  # v21: a call chained on a new line is recorded on the line of the called name; v20: undeclared return types inferred from the body; v19: TS field paths from typed locals/params; v18: callback params typed (annotation or callee callback type); v17: untyped locals marked receiver_local; v16: `import {x} from m; export {x}` re-exports x; v15: `T | undefined` and `new C<T>()` type locals; v14: locals of enclosing test blocks type nested calls; v13: generic type annotations type locals (Router<string>); v11: locals of test callbacks type the calls inside them; v10: module-scope locals (and those in its closures) typed; v9: export default {..} members, module.exports.x = y; v8: `export * as ns from`, test names not callable; v7: member-assigned functions, forward same-file calls, require().x; v5: arity/chain/static receiver annotations (v4: typed params)
+JSTS_VERSION = "22"  # v22: class field initializers are walked for calls; v21: a call chained on a new line is recorded on the line of the called name; v20: undeclared return types inferred from the body; v19: TS field paths from typed locals/params; v18: callback params typed (annotation or callee callback type); v17: untyped locals marked receiver_local; v16: `import {x} from m; export {x}` re-exports x; v15: `T | undefined` and `new C<T>()` type locals; v14: locals of enclosing test blocks type nested calls; v13: generic type annotations type locals (Router<string>); v11: locals of test callbacks type the calls inside them; v10: module-scope locals (and those in its closures) typed; v9: export default {..} members, module.exports.x = y; v8: `export * as ns from`, test names not callable; v7: member-assigned functions, forward same-file calls, require().x; v5: arity/chain/static receiver annotations (v4: typed params)
 
 
 def module_qname(rel_path: str) -> str:
@@ -604,8 +604,11 @@ class _V:
                 self._calls_in(init_fn, nid, q)
             self.scope.pop()
             return
-        nid, _ = self._add(node, "variable", "variable", name, "",
-                           {"class_field": True, "static": static}, parent=class_id)
+        nid, fq = self._add(node, "variable", "variable", name, "",
+                            {"class_field": True, "static": static}, parent=class_id)
+        value = node.child_by_field_name("value")
+        if value is not None:
+            self._calls_in(value, nid, fq)       # `x = this.f()`: runs when an instance is built
         for c in node.children:
             if c.type == "decorator":
                 for d in c.children:
