@@ -364,5 +364,11 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
         out += [ln.replace("Not counted above", "NOT changed") for ln in _render_unv(unv, unv_total, name)]
     if unnamed:
         out.append(f"{len(unnamed)} caller(s) reach it without writing its name (framework/DI/dispatch): check them.")
+    if apply:
+        left = len(skipped) + unv_total + len(unnamed)
+        if left:
+            out += ["", f"Done for every site listed above; do NOT re-edit them. Only the {left} item(s) marked above remain."]
+        else:
+            out += ["", "Done: every site was changed. Do NOT Read or Edit these files again to redo it."]
     out += ["", "Next: check_change to confirm nothing is left, then run the related tests."]
     return "\n".join(out)
