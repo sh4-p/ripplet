@@ -58,7 +58,7 @@ ripplet ui .           # browse the graph
 | | Ripplet | Graphify |
 |---|---:|---:|
 | Callers found (site recall, 258 functions) | **~93%** | ~23% |
-| Right file first for a task (hit@1, 389 tasks) | **62.5%** | 44.5% |
+| Right file first for a task (hit@1, 389 tasks) | **63.0%** | 44.5% |
 | Broken change caught by selected tests | **68-92%** | 10-20% |
 | Wrong call edges vs a compiler (12 repos) | **0** | not measured |
 
@@ -98,7 +98,7 @@ hold-out sets, to catch tuning that only fits the first four.
 | Repository | Tasks | hit@1 Ripplet | hit@1 Graphify | hit@5 Ripplet | hit@5 Graphify |
 |---|---:|---:|---:|---:|---:|
 | httpx (Python) | 38 | **53%** | 34% | **87%** | 76% |
-| marshmallow (Python) | 29 | **69%** | 41% | **90%** | 83% |
+| marshmallow (Python) | 29 | **76%** | 41% | **90%** | 83% |
 | jsoup (Java) | 40 | **60%** | 30% | **78%** | 55% |
 | chi (Go) | 40 | **62%** | 50% | 80% | 80% |
 | attrs (Python) | 15 | **80%** | 33% | **87%** | 53% |
@@ -110,7 +110,7 @@ hold-out sets, to catch tuning that only fits the first four.
 | commons-text (Java) | 18 | **78%** | 72% | **94%** | 83% |
 | commons-csv (Java) | 7 | **71%** | 14% | 86% | 86% |
 | JsonPath (Java) | 35 | **26%** | 11% | **60%** | 34% |
-| **all** | **389** | **62.5%** | 44.5% | **83.8%** | 69.9% |
+| **all** | **389** | **63.0%** | 44.5% | **83.8%** | 69.9% |
 
 Average answer size: about 1,500 tokens.
 
@@ -169,6 +169,12 @@ with and without Ripplet (without = no MCP server, no rules, no hooks).
 Renames are as reliable at less than half the cost and a fifth of the turns.
 Caller lists are about as complete; where the graph has a gap, the agent is
 told so (UNVERIFIED) rather than given a confident wrong answer.
+
+The gain is in changes (renames, impact, the tests to run). Exploring tasks on
+small repositories cost about the same with or without Ripplet: 8 tasks (explain
+how X works, add a small helper), one run each, $1.31 with and $1.25 without;
+the explaining tasks were cheaper with it ($0.39 vs $0.54), the small features
+dearer ($0.92 vs $0.71).
 
 ---
 
@@ -230,17 +236,19 @@ of them from the shell):
 |---|---|
 | `task_context` | the start of a task: the code it is about, callers, routes / tables, files to edit, tests |
 | `repo_map` | an unfamiliar repository: entry points, most-used files and symbols |
-| `explain_symbol` | a known name: source, every caller and callee with the call's code |
-| `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line |
+| `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
+| `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
-| `check_change` | after editing: broken callers, leftovers, the exact tests to run |
+| `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |
 | `list_routes` | routes, their handlers and the permission checks they make |
 | `feature_slice` | building something like an existing feature: all its touch points |
 | `find_related_tests`, `find_path`, `search_symbols`, `query_graph` | the rest |
 
 Answers fit a token budget and say how to get more; read tools re-index
-changed files first, so line numbers follow the agent's edits.
+changed files first, so line numbers follow the agent's edits. A name that is
+not in the index returns "not found" with the closest names, never an empty
+list that reads as "no callers".
 
 ---
 
@@ -311,6 +319,11 @@ else works without a model.
 - Dynamic languages (Ruby, Lua, PHP without types) have more UNVERIFIED sites
   than typed ones; Ripplet reports them instead of guessing.
 - Generated code that only exists after a build is not indexed.
+- Folders your `.gitignore` excludes (often `tests/`) are not indexed;
+  `check_change` says so instead of reporting "0 tests".
+- A name that only appears as a string (a dispatcher branching on
+  `"explain_symbol"`) is not a call edge; `task_context` points to the function
+  that holds the string.
 - Single SQLite file per workspace.
 
 ## License

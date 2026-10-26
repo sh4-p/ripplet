@@ -13,6 +13,7 @@ calls through interfaces, DI, overrides and imports that text search misses.
   files and symbols the rest of the code uses most, with signatures.
 - A known name (class, function, method): call `explain_symbol` before Grep or
   Read. One call returns its source, every caller and every callee with file:line.
+  Need several names? Pass them all in `symbols` in ONE call, not one call each.
 - "Who calls X?" / "What breaks if X changes?": `get_neighbors` (direction=in) or
   `analyze_change_impact`. Do not grep for callers: grep misses indirect calls
   and returns unrelated code with the same name. The list is complete only
