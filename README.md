@@ -137,18 +137,18 @@ compiler resolves, and every edge Ripplet claims:
 | Repository | Language | Recall | Wrong edges |
 |---|---|---:|---:|
 | hono | TypeScript | 0.955 | 0 |
-| h3 | TypeScript | 0.978 | 0 |
+| h3 | TypeScript | 0.986 | 0 |
 | axios | JavaScript | 1.000 | 0 |
-| starlette | Python | 0.954 | 0 |
+| starlette | Python | 0.964 | 0 |
 | requests | Python | 0.974 | 0 |
 | ripgrep | Rust | 0.938 | 0 |
-| axum | Rust | 0.839 | 0 |
+| axum | Rust | 0.852 | 0 |
 | eShopOnWeb | C# | 0.920 | 0 |
 | gin | Go | 0.959 | 0 |
 | echo | Go | 0.940 | 0 |
 | spring-petclinic | Java | 0.962 | 0 |
 | commons-lang | Java | 0.905 | 0 |
-| **all 12** | | **0.923** of 77,408 call sites | **0** |
+| **all 12** | | **0.925** of 77,907 call sites | **0** |
 
 A call Ripplet cannot prove (an untyped receiver whose method name exists in
 the project) is not turned into an edge. Agents see it in an `UNVERIFIED`
@@ -205,9 +205,16 @@ overrides) for:
 | Rust | modules, re-exports, workspaces, traits, macros |
 | PHP | namespaces, Laravel container/facades, Blade views, docblock types |
 | Ruby | modules, mixins, Rails conventions |
-| C / C++ | includes, namespaces, templates, `#if` branches, macro bodies |
+| C / C++ | includes, namespaces, templates (also `d.m<T>()`), `#if` branches, macro bodies, constructor initializer lists |
 | Swift | modules, extensions, closures typed by their callee |
-| Dart, Lua, GDScript | imports / requires, classes and modules |
+| Dart, Lua, GDScript | imports / requires, classes and modules; Dart null-aware calls and initializers |
+
+A call must get an edge wherever it is written. For each language the regression
+tests put calls in the awkward places: negated (`!f()`), chained over several lines
+(the call is recorded on the line of its name), generic (`f::<T>()`, `f<T>(x)`),
+null-conditional (`a?.f()`), and inside initializers, constructors, default values
+and `init` blocks. Finding the ones that were silently dropped came before the
+accuracy numbers above moved.
 
 Also indexed: SQL schemas and code migrations (Laravel, Rails, Django, Alembic,
 EF Core, Prisma) as tables and columns, HTTP routes and the client calls that
