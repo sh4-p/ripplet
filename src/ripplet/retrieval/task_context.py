@@ -47,6 +47,10 @@ def _stem(w: str) -> str:
     return w
 
 
+# the stop list holds plain words; terms are compared after stemming (`does` -> `doe`)
+_STOP |= {_stem(w) for w in _STOP}
+
+
 def _parts(name: str) -> list:
     """`getDueDate` / `due_date` / `DueDateField` -> [get, due, date, ...] (stemmed)."""
     raw = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name or "")
@@ -344,16 +348,35 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
     fscore = {f: v[0] + 0.25 * sum(sorted(v, reverse=True)[1:5])
               for f, v in ((f, sorted(v, reverse=True)) for f, v in per_file_scores.items())}
     picked = sorted(picked, key=lambda r: (-fscore.get(r[5], 0.0), -r[0]))
+    # Calls on a receiver the index could not type are not edges, so a helper like `getRetryInterval` shows
+    # "used by 0" while the loop that answers the task calls it. Show those sites, marked as unproven.
+    possible: dict = {}
+    from .uncertain import TOO_COMMON, unverified_sites
+    for row in picked:
+        if row[2] in ("function", "method") and users.get(row[1], 0) < 3:
+            try:
+                psites, ptotal = unverified_sites(cx, roots, {row[1]}, row[3], limit=3)
+            except Exception:  # noqa: BLE001
+                continue
+            if 0 < ptotal <= TOO_COMMON:
+                possible[row[1]] = (psites, ptotal)
     edit = []
     for row in picked:
         if row[5] not in edit:
             edit.append(row[5])
+        found_caller = False
         for cf, _n in cx.execute("SELECT file_path, COUNT(*) c FROM edges WHERE target=? AND relation IN "
                                  "('calls','instantiates','references') GROUP BY file_path "
                                  "ORDER BY c DESC LIMIT 6", (row[1],)):
             if cf and cf not in edit and not _TEST_RX.search(cf) and not _AUX_RX.search(cf):
                 edit.append(cf)
+                found_caller = True
                 break
+        if not found_caller and row[1] in possible:
+            for pf, _x, _code, _r in possible[row[1]][0]:
+                if pf and pf not in edit and not _TEST_RX.search(pf) and not _AUX_RX.search(pf):
+                    edit.append(pf)
+                    break
     if _files_only:
         return edit
     out.append("=== Files you will most likely edit")
@@ -361,10 +384,13 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
     out.append("")
     from ..change.check import site_line
     out.append(f"=== Most relevant code ({len(picked)})")
+    shown_possible: set = set()
     for score, nid, typ, lab, qn, fp, sl, el, _t, cover in picked:
         lines = lines_of(fp)
         head = lines[sl - 1].strip() if 1 <= sl <= len(lines) else ""
-        out.append(f"-- {qn} ({typ}) @ {fp}:{sl}-{el}  [used by {users.get(nid, 0)}]")
+        psites, ptotal = possible.get(nid, ([], 0))
+        used = f"used by {users.get(nid, 0)}" + (f" proven, {ptotal} possible" if ptotal else "")
+        out.append(f"-- {qn} ({typ}) @ {fp}:{sl}-{el}  [{used}]")
         if head:
             out.append(f"   {head[:160]}")
         body_end = min(el, sl + excerpt_lines - 1)
@@ -381,6 +407,15 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
             site = site_line(roots, cf, cl or 0, lab) if cf else None
             code = f" :: {site[1]}" if site else ""
             out.append(f"   <- {cq} @ {cf}:{site[0] if site else cl}{code}")
+        for pf, px, pcode, _r in psites:
+            if (pf, px) in shown_possible:
+                continue                    # the same site under a same-named method above
+            shown_possible.add((pf, px))
+            holder = cx.execute("SELECT qualified_name FROM nodes WHERE file_path=? AND start_line<=? AND end_line>=? "
+                                "AND type IN ('function','method') ORDER BY end_line-start_line LIMIT 1",
+                                (pf, px, px)).fetchone()
+            inside = f" (in {holder[0].rsplit('.', 1)[-1]})" if holder else ""
+            out.append(f"   <~ possible caller (receiver type unknown) @ {pf}:{px}{inside} :: {pcode}")
     out.append("")
     # routes and schema the task names
     routes = []
@@ -413,9 +448,9 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
     like_files = []
     if like:
         from .feature_slice import feature_slice
-        fs = feature_slice(store, cfg, like, max_chars=6000)
-        if isinstance(fs, str):
-            like_files = re.findall(r"^=== (IMPLEMENTS|TOUCH POINT): (.+)$", fs, re.M)
+        fs = feature_slice(store, cfg, like, files_only=True)
+        if isinstance(fs, list):
+            like_files = [(k, f) for k, f in fs if k in ("IMPLEMENTS", "TOUCH POINT")]
         if like_files:
             out.append(f"=== Existing feature to imitate: {like!r} (feature_slice({like!r}) returns the full files)")
             out.extend(f"  {kind.lower()}: {f}" for kind, f in like_files[:14])

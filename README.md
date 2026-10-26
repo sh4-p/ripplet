@@ -234,7 +234,7 @@ of them from the shell):
 
 | Tool | Use it for |
 |---|---|
-| `task_context` | the start of a task: the code it is about, callers, routes / tables, files to edit, tests |
+| `task_context` | the start of a task: the code it is about, callers (proven, and possible ones marked as such), routes / tables, the feature to imitate, files to edit, tests |
 | `repo_map` | an unfamiliar repository: entry points, most-used files and symbols |
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |

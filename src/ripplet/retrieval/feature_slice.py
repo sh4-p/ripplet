@@ -14,6 +14,11 @@ CODE_EXT = {".cs", ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".go",
 _NOISE = re.compile(r"(^|/)(node_modules|dist|bin|obj|vendor|\.git|realworld|fixtures?|"
                     r"__snapshots__)/", re.I)
 _GENERATED = re.compile(r"(\.Designer\.cs|ModelSnapshot\.cs|\.min\.js|\.lock)$", re.I)
+# a documentation tree (API reference pages built from the code) is output, not a feature to copy
+_DOCS = re.compile(r"(^|/)(docs?|documentation|apidocs?|api-docs|javadoc|site|_site)/", re.I)
+_MARKUP = {".html", ".css", ".scss"}
+# example / documentation code shows how to USE a feature; it is the last place to copy or edit
+_AUX = re.compile(r"(^|/)(docs?|documentation[\w-]*|examples?|samples?|snippets|demos?|tutorials?)/", re.I)
 
 
 def _stems(feature: str) -> list:
@@ -99,7 +104,7 @@ def _writes(lines: list, hits: list, root_rx=None) -> bool:
 
 
 def feature_slice(store, cfg, feature: str, max_chars: int = 60000,
-                  full_lines: int = 160, focus: str = "") -> str | dict:
+                  full_lines: int = 160, focus: str = "", files_only: bool = False) -> str | dict | list:
     stems = _stems(feature)
     if not stems:
         return {"error": "give a feature name, e.g. 'favorite'"}
@@ -133,7 +138,7 @@ def feature_slice(store, cfg, feature: str, max_chars: int = 60000,
             continue
         lines = text.splitlines()
         hits = [i for i, t in enumerate(lines) if rx.search(t)]
-        if _GENERATED.search(rel):
+        if _GENERATED.search(rel) or (_DOCS.search(rel) and Path(rel).suffix.lower() in _MARKUP):
             generated.append(f"{rel} ({len(hits)} mentions)")
         elif rx.search(Path(rel).name) or rx.search(Path(rel).parent.name):
             core.append((rel, lines, hits))
@@ -167,7 +172,12 @@ def feature_slice(store, cfg, feature: str, max_chars: int = 60000,
     entries = [mk(t, "implements", _CORE_LEVELS) for t in core] +         [mk(t, "touch point", _TOUCH_LEVELS) for t in touch]
     # priority: own files, then places that write/accept it, then tests, then
     # code that only reads it (reports, rollups): optional for a sibling field
-    entries.sort(key=lambda e: (e["role"] == "reads it", is_test(e), e["role"] != "implements"))
+    entries.sort(key=lambda e: (e["role"] == "reads it", bool(_AUX.search(e["file"])), is_test(e),
+                                e["role"] != "implements"))
+    if files_only:
+        # the ranked file list without rendering any excerpt, so a caller with a small budget still gets it
+        kinds = {"implements": "IMPLEMENTS", "touch point": "TOUCH POINT", "reads it": "READS IT"}
+        return [(kinds[e["role"]], e["file"]) for e in entries]
 
     for e in entries:
         e["body"] = _render_entry(e, full_lines)
