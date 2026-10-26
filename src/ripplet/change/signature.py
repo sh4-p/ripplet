@@ -312,7 +312,14 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
                     if pos is not None and pos > len(spans):
                         skipped.append(f"{rel}:{ln}: call has {len(spans)} argument(s); the new one goes at {pos}")
                         continue
-                    e = _edit_list(text, spans, close, o, op_call, pos)
+                    call_op, call_pos = op_call, pos
+                    if ext == ".py" and not re.match(r"\s*\*{0,2}[A-Za-z_]\w*\s*=(?!=)", op_call[1]):
+                        # Python: a positional value after a keyword/star argument is a SyntaxError, so name it
+                        pname = re.match(r"\s*\*{0,2}\s*([A-Za-z_]\w*)", add_param["decl"])
+                        kw = any(re.match(r"\s*(\*|[A-Za-z_]\w*\s*=(?!=))", text[a:b]) for a, b in spans)
+                        if pname and (kw or (pos is not None and pos < len(spans))):
+                            call_op, call_pos = ("add", f"{pname.group(1)}={op_call[1]}"), None
+                    e = _edit_list(text, spans, close, o, call_op, call_pos)
                 if e is None:
                     skipped.append(f"{rel}:{ln}: call could not be edited")
                     continue
