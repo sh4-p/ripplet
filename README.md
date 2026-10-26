@@ -188,10 +188,11 @@ opt-in.
 
 Adding a parameter is a multi-site edit too, so `change_signature` does it in one call
 (declaration and every call site, `dry_run` to preview). Same task on four repositories (Python,
-Go, Java, Kotlin), one run each, checked from the working tree: $0.30 and 45 turns with the tool
-against $1.42 and 159 turns with the agent's own edits, and 68 of 70 call sites changed against
-70 of 70. The two missed sites were in a Kotlin file the parser gave up on (a `$$".."` string);
-it is read now. Sites the graph cannot prove are listed, not edited. Single runs: read it as a
+Go, Java, Kotlin), one run each, checked from the working tree: $0.20 and 15 turns with the tool
+against $1.42 and 159 turns with the agent's own edits, and 70 of 70 call sites changed in both.
+(An earlier run missed two Kotlin sites because the parser gave up on a `$$".."` string, and in Python
+a bare value after a keyword argument was a syntax error that sent the agent back to hand editing;
+both are fixed.) Sites the graph cannot prove are listed, not edited. Single runs: read it as a
 direction, not a precise figure.
 
 Answer quality, on the six "explain how X works" tasks, scored against key facts
