@@ -25,6 +25,7 @@ TOOL_BUDGETS = {
     "check_change": 6000,
     "change_plan": 6000,
     "rename_symbol": 4000,
+    "change_signature": 4000,
     "compare_revisions": 6000,
     "repo_map": 3500,
     "task_context": 4500,

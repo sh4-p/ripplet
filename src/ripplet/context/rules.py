@@ -58,7 +58,11 @@ calls through interfaces, DI, overrides and imports that text search misses.
   declaration, overrides, every call site and import itself, only on lines the
   graph proves, and returns the remaining text mentions to review. Do not open
   and edit each file by hand.
-- Changing the parameters of, or removing a symbol: call `change_plan` BEFORE
+- Adding or removing a parameter: call `change_signature` (symbol, add_param=
+  {decl, value} or remove_param=name). It edits the declaration, overrides and
+  EVERY call site the graph proves in one call; editing call sites one by one
+  costs a turn each. Unverified sites it lists are yours to check.
+- Other signature changes, or removing a symbol: call `change_plan` BEFORE
   editing. It lists every line to change (overrides and each call site), and
   same-named code that must NOT change.
 - Security / permission audits, "which endpoint lets a user do X": call

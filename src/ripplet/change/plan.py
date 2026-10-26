@@ -248,6 +248,8 @@ def change_plan(store, cfg, symbol: str, change: str = "rename", new_name: str =
     elif change == "signature":
         out.append("Update every DECLARATION together, then every CALL SITE to the new parameters. "
                    "Arity shown where known.")
+        out.append(f"Faster, to ADD or REMOVE a parameter: change_signature(symbol='{node['qualified_name']}', "
+                   "add_param={decl, value} or remove_param=name) edits these lines in one call.")
     else:
         out.append("Every CALL SITE must stop using it before the DECLARATIONS are deleted.")
     out.append("After editing, call check_change: it confirms nothing was left behind.")

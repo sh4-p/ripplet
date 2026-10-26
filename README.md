@@ -186,6 +186,14 @@ five tasks cost $1.54 (+40%): it still reads the code it edits, and every call p
 the tool's overhead. The edits themselves worked (code changed in 5 of 5). It stays
 opt-in.
 
+Adding a parameter is a multi-site edit too, so `change_signature` does it in one call
+(declaration and every call site, `dry_run` to preview). Same task on four repositories (Python,
+Go, Java, Kotlin), one run each, checked from the working tree: $0.30 and 45 turns with the tool
+against $1.42 and 159 turns with the agent's own edits, and 68 of 70 call sites changed against
+70 of 70. The two missed sites were in a Kotlin file the parser gave up on (a `$$".."` string);
+it is read now. Sites the graph cannot prove are listed, not edited. Single runs: read it as a
+direction, not a precise figure.
+
 Answer quality, on the six "explain how X works" tasks, scored against key facts
 (function names, files, settings) checked in each repository's source: without
 Ripplet the answers name 100% of them. With Ripplet they first named 93%: one
@@ -274,6 +282,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
+| `change_signature` | adds or removes a parameter on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name`, `dry_run`); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |
 | `list_routes` | routes, their handlers and the permission checks they make |
