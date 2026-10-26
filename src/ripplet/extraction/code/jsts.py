@@ -17,7 +17,7 @@ from ...core.identifiers import (
 )
 from ...core.provenance import make_evidence
 
-JSTS_VERSION = "20"  # v20: undeclared return types inferred from the body; v19: TS field paths from typed locals/params; v18: callback params typed (annotation or callee callback type); v17: untyped locals marked receiver_local; v16: `import {x} from m; export {x}` re-exports x; v15: `T | undefined` and `new C<T>()` type locals; v14: locals of enclosing test blocks type nested calls; v13: generic type annotations type locals (Router<string>); v11: locals of test callbacks type the calls inside them; v10: module-scope locals (and those in its closures) typed; v9: export default {..} members, module.exports.x = y; v8: `export * as ns from`, test names not callable; v7: member-assigned functions, forward same-file calls, require().x; v5: arity/chain/static receiver annotations (v4: typed params)
+JSTS_VERSION = "21"  # v21: a call chained on a new line is recorded on the line of the called name; v20: undeclared return types inferred from the body; v19: TS field paths from typed locals/params; v18: callback params typed (annotation or callee callback type); v17: untyped locals marked receiver_local; v16: `import {x} from m; export {x}` re-exports x; v15: `T | undefined` and `new C<T>()` type locals; v14: locals of enclosing test blocks type nested calls; v13: generic type annotations type locals (Router<string>); v11: locals of test callbacks type the calls inside them; v10: module-scope locals (and those in its closures) typed; v9: export default {..} members, module.exports.x = y; v8: `export * as ns from`, test names not callable; v7: member-assigned functions, forward same-file calls, require().x; v5: arity/chain/static receiver annotations (v4: typed params)
 
 
 def module_qname(rel_path: str) -> str:
@@ -260,11 +260,11 @@ class _V:
         return eid
 
     def _edge(self, src: str, rel: str, tgt: str, node, etype: str, cclass: str,
-              score, attrs: dict | None = None, method: str | None = None):
+              score, attrs: dict | None = None, method: str | None = None, line: int | None = None):
         self.res.edges.append(Edge(
             canonical_edge_id(src, rel, tgt, self.rel), src, tgt, rel, etype, cclass,
             score, [self.ev.id], method or f"jsts-{self.lang}", JSTS_VERSION,
-            file_path=self.rel, start_line=node.start_point[0] + 1,
+            file_path=self.rel, start_line=line or node.start_point[0] + 1,
             attributes=attrs or {}))
 
     # ------------------------------------------------------- module walk
@@ -1525,6 +1525,14 @@ class _V:
         fn = kids[0] if kids else None
         args = next((c for c in node.children if c.type == "arguments"), None)
         kind, base, member = self._callee_shape(fn)
+        # a call chained on a new line (`d` / `.m()`) starts at its receiver; the name is on the member's line
+        row = node.start_point[0]
+        if fn is not None and node.end_point[0] > row:
+            leaf = fn
+            while leaf.child_count:
+                leaf = leaf.children[-1]
+            row = leaf.start_point[0]
+        line = row + 1
         if self._maybe_test_decl(node, kind, base, member, args, owner_id,
                                  ".".join(self.scope)):
             return True
@@ -1547,14 +1555,14 @@ class _V:
             return True
         # same-module fast path (declaration table, scope-aware)
         local = self._local_target(kind, base, member)
-        occ = [{"line": node.start_point[0] + 1, "end_line": node.end_point[0] + 1,
+        occ = [{"line": line, "end_line": node.end_point[0] + 1,
                 "col": node.start_point[1]}]
         if local is not None and not is_new:
             self.res.edges.append(Edge(
                 canonical_edge_id(owner_id, "calls", local, self.rel), owner_id, local,
                 "calls", "resolved", "resolved", 0.9, [self.ev.id],
                 f"jsts-{self.lang}-local", JSTS_VERSION,
-                file_path=self.rel, start_line=node.start_point[0] + 1,
+                file_path=self.rel, start_line=line,
                 attributes={"occurrences": occ}))
             return False
         display = member if kind == "member" else (member or base or "?")
@@ -1563,7 +1571,7 @@ class _V:
         target = self._ext(display, member or display)
         attrs: dict = {"callee_kind": kind, "base": base, "member": member,
                        "constructs": is_new, "arity": self._arity(args),
-                       "occurrences": [{"line": node.start_point[0] + 1,
+                       "occurrences": [{"line": line,
                                         "end_line": node.end_point[0] + 1,
                                         "col": node.start_point[1]}]}
         if base in ("this", "super"):
@@ -1581,8 +1589,8 @@ class _V:
             if not is_new else ("resolved", "resolved", 0.85)
         if kind == "identifier" and member and not is_new and binding is None:
             self.pending_local.append((len(self.res.edges), tuple(self.scope), member,
-                                       owner_id, node.start_point[0] + 1))
-        self._edge(owner_id, rel, target, node, etype, cclass, score, attrs)
+                                       owner_id, line))
+        self._edge(owner_id, rel, target, node, etype, cclass, score, attrs, line=line)
         return False
 
     def _arity(self, args) -> int:

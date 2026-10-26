@@ -9,8 +9,8 @@ from ...core.identifiers import (
 from ...core.provenance import make_evidence
 from .base import CodeExtractor
 
-EXTRACTOR_VERSION = "13"  # 13: every module-level call (scripts, __main__, x = f()) owned by the module; parameter ranges on functions; 11: constant str_value + include prefix refs (10: receiver-aware, order-independent call binding)
-CALL_RESOLUTION_VERSION = "6"  # receiver-aware binding: attribute/local/module receivers never bind by short name (was 5)
+EXTRACTOR_VERSION = "14"  # 14: a call chained on a new line is recorded on the line of the attribute; 13: every module-level call (scripts, __main__, x = f()) owned by the module; parameter ranges on functions; 11: constant str_value + include prefix refs (10: receiver-aware, order-independent call binding)
+CALL_RESOLUTION_VERSION = "7"  # 7: chained-call line is the attribute line; receiver-aware binding: attribute/local/module receivers never bind by short name (was 5)
 # Phase 24 Faz C: framework-aware route facts (additive only — no existing
 # fact changes shape, so no extractor-version bump). HTTP verbs recognized
 # on any receiver (`router_known` records whether it is a file-local
@@ -1236,12 +1236,16 @@ class _CallWalk(ast.NodeVisitor):
             site = _sf(site, str(route_kw.get("router", "")),
                        str(route_kw.get("prefix", "")),
                        str(route_kw.get("view_func", "")))
-        occ = [{"line": getattr(node, "lineno", 1),
+        # a call chained on a new line (`d` / `.m()`) starts at its receiver; its name is on the attribute's line
+        name_line = getattr(node, "lineno", 1)
+        if isinstance(node.func, ast.Attribute):
+            name_line = getattr(node.func, "end_lineno", name_line) or name_line
+        occ = [{"line": name_line,
                 "end_line": getattr(node, "end_lineno", getattr(node, "lineno", 1)) or 1,
                 "col": getattr(node, "col_offset", 0)}]
         call = {"walk": self, "src": self.src, "src_q": self.src_q, "name": name,
                 "short": short, "site": site, "occ": occ, "route_kw": route_kw,
-                "line": getattr(node, "lineno", 1)}
+                "line": name_line}
         if self.pending is not None:
             self.pending.append(call)
         else:  # standalone walk (no file context): never guess a binding
