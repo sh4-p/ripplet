@@ -52,6 +52,14 @@ TOOL_DEFS = [
    {"name":"task_context","description":"Start of a task: give the task in plain words; returns the code it is about (ranked, with excerpts and real callers), related routes and tables, an existing feature to imitate for 'like X', the files to edit and the tests that reach them.","inputSchema":{"type":"object","properties":{"task":{"type":"string"}},"required":["task"]}},
    {"name":"use_workspace","description":"Bind this session to a project directory (reads <dir>/.ripplet/config.json). Use when get_index_status shows an empty or unexpected index instead of the project you work in.","inputSchema":{"type":"object","properties":{"path":{"type":"string","description":"Project root directory"}},"required":["path"]}},
 ]
+# Experimental "sandbox" profile (RIPPLET_MCP_TOOLS=sandbox): read and edit code without leaving Ripplet, so an
+# agent need not open a whole file only to be allowed to edit it. Not part of the default tool list.
+SANDBOX_TOOLS = ("read_code", "edit_code", "write_code")
+TOOL_DEFS.extend([
+ {"name":"read_code","description":"Read code: symbol names and/or file paths in ONE call (a symbol returns its source, a path its numbered lines; start/end pick a range).","inputSchema":{"type":"object","properties":{"targets":{"type":"array","items":{"type":"string"}},"start":{"type":"integer"},"end":{"type":"integer"}},"required":["targets"]}},
+ {"name":"edit_code","description":"Edit code by exact replacement: edits=[{path or symbol, old, new, replace_all?}], several at once, all or nothing. `old` must match exactly one place. No prior read needed; returns the changed lines.","inputSchema":{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"symbol":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["old","new"]}}},"required":["edits"]}},
+ {"name":"write_code","description":"Create a file (an existing one only with overwrite=true).","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["path","content"]}},
+])
 from .budget import add_budget_param as _add_budget
 _add_budget(TOOL_DEFS)
 # Default `tools/list` profile. Every TOOL_DEFS entry stays callable by
@@ -85,11 +93,15 @@ def listed_tools(env=None) -> list:
     want = ((env if env is not None else os.environ).get("RIPPLET_MCP_TOOLS") or "").strip()
     if want.lower() == "all":
         return TOOL_DEFS
-    names = [w.strip() for w in want.split(",") if w.strip()] if want else list(CORE_TOOLS)
+    sandbox = want.lower() == "sandbox"
+    if sandbox:
+        names = list(CORE_TOOLS) + list(SANDBOX_TOOLS)
+    else:
+        names = [w.strip() for w in want.split(",") if w.strip()] if want else list(CORE_TOOLS)
     out = []
     for t in TOOL_DEFS:
         if t["name"] in names:
-            if not want:
+            if not want or sandbox:
                 t = _lean(t)
                 if t["name"] in _CORE_HINTS:
                     t = dict(t, description=_CORE_HINTS[t["name"]])
@@ -645,6 +657,45 @@ def call_tool(store, cfg, name: str, args: dict):
         out, omitted, status = _apply_ledger(store, items, _known_snap, _known_ids, True)
         return _with_telemetry(name, args, {"results": out, "snapshot": _ledger_snapshot(store),
                 "omitted": omitted, "ledger": status}, _t0)
+    if name in SANDBOX_TOOLS:
+        from ..change import code_io as _io
+        if name == "read_code":
+            targets = [str(t) for t in (args.get("targets") or ([args["target"]] if args.get("target") else []))]
+            if not targets:
+                return "read_code: pass targets=[symbol names or file paths]"
+            outs = []
+            for t in targets[:12]:
+                p_, _rel = _io.locate(cfg, t)
+                if p_ is not None:
+                    outs.append(_io.read_lines(cfg, t, args.get("start"), args.get("end")))
+                    continue
+                n_ = _node_for(store, t)
+                if n_ is not None and n_.type in _CODE_TYPES and n_.file_path:
+                    loc_ = n_.location
+                    s_ = getattr(loc_, "start_line", 0) or 1
+                    outs.append(_io.read_lines(cfg, n_.file_path, s_, getattr(loc_, "end_line", 0) or s_,
+                                               header=f"== {n_.qualified_name} ({n_.type}) @ {n_.file_path}"))
+                else:
+                    u_ = _unknown_ref(store, t)
+                    outs.append(f"== {t}\nnot a file of the workspace and no such symbol in the index"
+                                + ("; did you mean: " + "; ".join(u_["did_you_mean"][:4]) if u_["did_you_mean"] else ""))
+            return "\n\n".join(outs)
+        if name == "edit_code":
+            eds = []
+            for e_ in args.get("edits") or []:
+                e_ = dict(e_)
+                if not e_.get("path") and e_.get("symbol"):
+                    n_ = _node_for(store, str(e_["symbol"]))
+                    if n_ is None or not n_.file_path:
+                        return f"nothing written:\n- symbol {e_['symbol']!r} is not in the index"
+                    loc_ = n_.location
+                    e_["path"] = n_.file_path
+                    e_["start"] = getattr(loc_, "start_line", 0) or None
+                    e_["end"] = getattr(loc_, "end_line", 0) or None
+                eds.append(e_)
+            return _io.apply_edits(cfg, eds)
+        return _io.write_file(cfg, str(args.get("path") or ""), str(args.get("content") or ""),
+                              bool(args.get("overwrite")))
     if name=="check_change":
         from ..change.check import check_change, render_text
         _r = check_change(cfg, base=args.get("base") or None, depth=int(args.get("depth", 2) or 2),

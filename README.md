@@ -170,14 +170,21 @@ Renames are as reliable at less than half the cost and a fifth of the turns.
 Caller lists are about as complete; where the graph has a gap, the agent is
 told so (UNVERIFIED) rather than given a confident wrong answer.
 
-The gain is in changes (renames, impact, the tests to run). Exploring tasks cost
-about the same with or without Ripplet: on 8 tasks in 4 small repositories (explain
-how X works, add a small helper), $1.31 with and $1.25 without; on 4 tasks in two
-large ones (Exposed, Kotlin, 5.9k files; BookStack, PHP), $0.99 with and $0.85
-without. One run each, so a difference under ~20% is noise. What decides the cost is
+The gain is in changes (renames, impact, the tests to run). Exploring and building
+cost about the same with or without Ripplet. Five "add a small feature" tasks in
+five repositories (Python, Go, TypeScript, Java, Kotlin), each starting from the same
+commit, one run each: $1.10 without Ripplet, $1.00 with it available (the agent
+decides when to use it). A difference under ~20% is noise. What decides the cost is
 the number of turns, not the size of the answers, so Ripplet batches (`explain_symbol`
 takes several names) and can add the task's context before the first turn
 (`--prefetch` below).
+
+Forcing the use does not help. An experimental profile (`RIPPLET_MCP_TOOLS=sandbox`)
+adds `read_code`, `edit_code` and `write_code`, so code can be read and edited
+without leaving Ripplet. With the agent's own Read/Grep/Edit switched off the same
+five tasks cost $1.54 (+40%): it still reads the code it edits, and every call pays
+the tool's overhead. The edits themselves worked (code changed in 5 of 5). It stays
+opt-in.
 
 Answer quality, on the six "explain how X works" tasks, scored against key facts
 (function names, files, settings) checked in each repository's source: without
