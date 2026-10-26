@@ -38,7 +38,7 @@ from ..core.identifiers import canonical_edge_id, site_fingerprint
 from ..core.models import Edge
 
 METHOD = "py-call-bind"
-VERSION = "13"  # v13: `with` enters __enter__/__exit__, getattr(self, "prefix" + x) dispatch; v12: conditional collection attributes, locals from typed dict/list subscripts; v11: properties, collection element types in for-loops, module globals; v10: calling a typed object types the result by its __call__; v9: unannotated receivers typed by the repo's naming convention (inferred); v8: locals of nested defs do not leak into the enclosing function; v7: rows of one call spelling merge their sites into one edge (last row won); v6: unique distinctive method names bind untyped receivers (inferred); v5: locals typed through a typed param's method return; v4: attribute chains on typed params; v3: local/loop variable types; v2: self-attribute and pytest-fixture receivers
+VERSION = "15"  # v13: `with` enters __enter__/__exit__, getattr(self, "prefix" + x) dispatch; v12: conditional collection attributes, locals from typed dict/list subscripts; v11: properties, collection element types in for-loops, module globals; v10: calling a typed object types the result by its __call__; v9: unannotated receivers typed by the repo's naming convention (inferred); v8: locals of nested defs do not leak into the enclosing function; v7: rows of one call spelling merge their sites into one edge (last row won); v6: unique distinctive method names bind untyped receivers (inferred); v5: locals typed through a typed param's method return; v4: attribute chains on typed params; v3: local/loop variable types; v2: self-attribute and pytest-fixture receivers
 _CHAIN = 4   # re-export hops followed through module import maps
 _MRO = 16    # classes visited per heritage walk
 
@@ -613,6 +613,20 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
                     f = method_on(mro(rc, True), parts_[1])
                     if f is not None:
                         return returns_of(f)
+                    # `generator = env.code_generator_class(..)`: a class (or
+                    # callable) held in an attribute of the typed receiver
+                    for k in mro(rc, True):
+                        sp = attr_types(k).get(parts_[1])
+                        if not sp:
+                            continue
+                        is_cls = sp.startswith("type:")
+                        cls = resolve_name(module_node_for(k) or mod, sp[5:] if is_cls else sp)
+                        if cls and qname.get(cls) in classes:
+                            if is_cls:
+                                return (cls, False)
+                            f2 = method_on(mro(cls, True), "__call__")
+                            return returns_of(f2) if f2 is not None else (cls, False)
+                    return None
             if len(parts_) == 1:
                 # `client = test_client_factory(app)` with `test_client_factory:
                 # TestClientFactory` (a Protocol/class with __call__): calling a
@@ -755,6 +769,28 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
         owner_q = qname[ids_[0]].rsplit(".", 1)[0]
         if owner_q in classes:              # a method, not a module-level function
             unique_member[lab_] = ids_[0]
+    # Property getters defined exactly once in the repo, keyed by property name.
+    # Used to bind attribute reads on untyped receivers (`style.link` where
+    # `style` has no known type) to the one getter that defines it.
+    unique_property: dict = {}
+    prop_counts: dict = {}
+    for nid_, t_ in ntype.items():
+        if t_ not in ("function", "method") or "." not in qname.get(nid_, ""):
+            continue
+        fp_ = nfile.get(nid_)
+        ln_ = nline.get(nid_, 0)
+        node_ = def_at(fp_, ln_, (ast.FunctionDef, ast.AsyncFunctionDef))
+        if node_ is None:
+            continue
+        is_prop_ = any((_dotted(dc) or "").rsplit(".", 1)[-1] in ("property", "cached_property")
+                      for dc in getattr(node_, "decorator_list", []))
+        if not is_prop_:
+            continue
+        lab_ = qname[nid_].rsplit(".", 1)[-1]
+        prop_counts.setdefault(lab_, []).append(nid_)
+    for lab_, ids_ in prop_counts.items():
+        if len(ids_) == 1:
+            unique_property[lab_] = ids_[0]
     unique_attr_blockers = {"self", "cls"}
 
     # 5. bind python unresolved calls
@@ -801,7 +837,21 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
                 # type (syntax), resolved through this module's imports.
                 c = resolve_name(mod, d["receiver_type"])
                 if c and qname.get(c) in classes:
-                    tgt, via = method_on(mro(c, True), m), "annotation"
+                    tgt = method_on(mro(c, True), m)
+                    via = "annotation"
+                    if tgt is None:
+                        # `ctx.code_generator_class(..)`: a class (or callable)
+                        # held in an attribute of the declared type
+                        for k in mro(c, True):
+                            sp = attr_types(k).get(m)
+                            if not sp:
+                                continue
+                            is_cls = sp.startswith("type:")
+                            cls = resolve_name(module_node_for(k) or mod, sp[5:] if is_cls else sp)
+                            if cls and qname.get(cls) in classes:
+                                tgt = cls if is_cls else method_on(mro(cls, True), "__call__")
+                                via = "class-attribute" if is_cls else "callable-attribute"
+                                break
             else:
                 h = imported(src, mod, base)
                 if h and ntype.get(h) == "module":
@@ -1005,6 +1055,8 @@ def bind_and_supersede(store, repo_roots: dict | None = None) -> dict:
                     # as a value is called later
                     c = var_type(own, mid, ch.value.id, ch.lineno)
                     t_ = method_on(mro(c, True), ch.attr) if c else None
+                    if t_ is None and ch.value.id not in ("self", "cls"):
+                        t_ = unique_property.get(ch.attr)
                     if t_ and t_ != own and (own, t_) not in seen_ref:
                         seen_ref.add((own, t_))
                         e = Edge(canonical_edge_id(own, "references", t_, fp, "bound-method"),
@@ -1165,8 +1217,14 @@ def _ann(n) -> str | None:
     if isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr):
         sides = [x for x in (n.left, n.right) if not (isinstance(x, ast.Constant) and x.value is None)]
         return _ann(sides[0]) if len(sides) == 1 else None
-    if isinstance(n, ast.Subscript) and (_dotted(n.value) or "").split(".")[-1] == "Optional":
-        return _ann(n.slice)
+    if isinstance(n, ast.Subscript):
+        _base = (_dotted(n.value) or "").rsplit(".", 1)[-1]
+        if _base in ("type", "Type"):
+            _inner = _ann(n.slice)
+            if _inner:
+                return "type:" + _inner
+        if _base == "Optional":
+            return _ann(n.slice)
     d = _dotted(n)
     return d if d and d[:1].isupper() or (d and "." in d and d.rsplit(".", 1)[-1][:1].isupper()) else None
 
