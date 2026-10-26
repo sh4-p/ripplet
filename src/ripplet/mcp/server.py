@@ -253,7 +253,8 @@ def serve_stdio():
                     text = _render(out, name, args)
                     _send({"jsonrpc":"2.0","id":mid,"result":{"content":[{"type":"text","text": (note + "\n" + text) if note else text}]}})
                 except Exception as e:
-                    _send({"jsonrpc":"2.0","id":mid,"error":{"code":-32602,"message":str(e)[:500]}})
+                    msg = f"{name}: missing required argument {e.args[0]!r}" if isinstance(e, KeyError) and e.args else str(e)
+                    _send({"jsonrpc":"2.0","id":mid,"error":{"code":-32602,"message":msg[:500]}})
             elif method=="ping": _send({"jsonrpc":"2.0","id":mid,"result":{}})
             elif method is None: pass
             else: _send({"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":f"unknown method {method}"}})

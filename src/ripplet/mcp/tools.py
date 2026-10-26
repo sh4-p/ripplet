@@ -176,6 +176,45 @@ def _resolve(store, ref: str):
         mod = 1 if c.type in ("module", "package", "file") else 0
         return (exact, ext, mod, len(c.qualified_name))
     return sorted(cands, key=_k)[0]
+
+
+def _did_you_mean(store, ref: str, n: int = 5) -> list:
+    """Closest real symbols for a ref that did not resolve: names containing its last segment."""
+    tail = (_norm_ref(ref) or ref or "").split(".")[-1]
+    if not tail:
+        return []
+    out = []
+    for c in store.search_symbols(tail, n * 3, partial=True):
+        if c.type == "external_symbol":
+            continue
+        out.append(f"{c.qualified_name} ({c.type}) @ {c.file_path} #{c.id}")
+        if len(out) >= n:
+            break
+    return out
+
+
+def _unknown_ref(store, ref: str) -> dict:
+    """The answer for a symbol or id that is not in the index. An empty list would read as 'none found'."""
+    return {"error": f"no symbol or node id '{ref}' in the index",
+            "did_you_mean": _did_you_mean(store, ref),
+            "hint": "search_symbols(query=<part of the name>) lists matches; pass a qualified name or an id"}
+
+
+def _node_for(store, ref: str):
+    """Node for an id or an exact (qualified) name; None when neither resolves."""
+    n = store.get_node(ref)
+    if n:
+        return n
+    c = _resolve(store, ref)
+    if c is None:
+        return None
+    rl = (_norm_ref(ref) or ref or "").lower()
+    q = c.qualified_name.lower()
+    if q == rl or c.label.lower() == rl or q.endswith("." + rl):
+        return c
+    return None
+
+
 def _ledger_snapshot(store) -> str:
     """Latest snapshot id (ledger revision pin). Empty when none exists."""
     try:
@@ -645,9 +684,15 @@ def call_tool(store, cfg, name: str, args: dict):
         return [{"id":n.id,"type":n.type,"label":n.label,"file":n.file_path} for n in res if n.type in ("doc_section","claim","file","config_key") or True][:lim]
     if name=="expand_evidence":
         from ..retrieval import spans as _spans
+        _nid = args.get("node_id")
+        if _nid and not store.get_node(_nid):
+            _en = _node_for(store, _nid)
+            if _en is None:
+                return dict(_unknown_ref(store, _nid), error=f"unknown node: {_nid!r} (not an id or a symbol name)")
+            _nid = _en.id
         return _spans.expand_evidence(
             store, cfg, evidence_id=args.get("evidence_id"),
-            node_id=args.get("node_id"),
+            node_id=_nid,
             level=args.get("level") or "span",
             context_lines=int(args.get("context_lines", 10) or 10))
     if name=="query_graph":
@@ -688,12 +733,23 @@ def call_tool(store, cfg, name: str, args: dict):
         n=store.get_node(args["id"])
         return None if not n else n.to_dict()
     if name=="get_neighbors":
+        _n = _node_for(store, args["id"])
+        if _n is None:
+            return _with_telemetry(name, args, _unknown_ref(store, args["id"]), _t0)
+        _asked = args["id"]
+        args = dict(args, id=_n.id)
         res=store.neighbors(args["id"],args.get("direction","both"),args.get("relations"),lim,
                             offset=int(args.get("offset",0) or 0),
                             include_total=args.get("include_total") in (True,1,"true","1"))
         if not _ledger_on and _compact_wanted(store, args, "neighbors_default"):
             if isinstance(res, list):
                 lines = _compact_neighbors(store, args["id"], res)
+                if all(l.startswith(("<- defines", "<- contains")) for l in lines):
+                    # containment is not a caller; say so instead of leaving the list to be read as "none"
+                    lines.append(f"none: {_n.qualified_name} has no {args.get('direction', 'both')} calls/uses in "
+                                 f"the graph (calls through dynamic dispatch are not guessed)")
+                if _asked != _n.id:
+                    lines.insert(0, f"(resolved '{_asked}' -> {_n.qualified_name} #{_n.id})")
                 off_ = int(args.get("offset", 0) or 0)
                 if len(res) >= lim:
                     # never a silently cut list: say there is more and how to get it
@@ -789,11 +845,14 @@ def call_tool(store, cfg, name: str, args: dict):
             return card
         if _compact_wanted(store, args, "explain_default"):
             if len(refs) > 1:
-                cards = [_card(r) or {"symbol": r, "error": "not found; try search_symbols"} for r in refs[:8]]
+                cards = [_card(r) or dict(_unknown_ref(store, r), symbol=r) for r in refs[:8]]
                 return _with_telemetry(name, args, {"symbols": cards}, _t0)
             card = _card(refs[0])
             if card is not None:
                 return _with_telemetry(name, args, card, _t0)
+        if len(refs) == 1 and not re.search(r"\s", refs[0].strip()) and _resolve(store, refs[0]) is None:
+            # a bare name that is not in the index: the free-text answer below would be an unrelated "top match"
+            return _with_telemetry(name, args, _unknown_ref(store, refs[0]), _t0)
         return execute(store,f"Explain how {refs[0]} works",20)
     if name=="get_source_evidence":
         n=store.get_node(args["id"])
@@ -821,12 +880,17 @@ def call_tool(store, cfg, name: str, args: dict):
         return {"a":args["a"],"b":args["b"],"note":"compare via get_neighbors on each module; shared deps need manual review"}
     if name=="analyze_change_impact":
         raw_syms=list(args.get("symbols",[]) or [])
-        syms=[]
+        syms=[]; missing=[]
         for s in raw_syms:
             if store.get_node(s): syms.append(s)
             else:
                 r=_resolve(store, s)
                 if r: syms.append(r.id)
+                else: missing.append(s)
+        not_found = [dict(_unknown_ref(store, m), symbol=m) for m in missing]
+        if not_found and not syms and not args.get("files"):
+            return _with_telemetry(name, args, {"error": "none of the symbols is in the index; no impact computed",
+                                                "not_found": not_found}, _t0)
         for f in args.get("files",[]) or []:
             syms += [n.id for n in store.search_symbols(f.split("/")[-1].split(".")[0],10)]
         eo=[type("E",(),e)() for e in store.all_edges()]
@@ -836,16 +900,22 @@ def call_tool(store, cfg, name: str, args: dict):
             # Containment (file defines symbol) is not a dependent; the
             # compact view lists callers/importers with their call sites.
             _deps = [f for f in _findings if not str(f.get("affected", "")).startswith("file:")]
-            return _with_telemetry(name, args, _compact_impact(store, syms, _deps, _tests, cfg), _t0)
-        return _with_telemetry(name, args, {"symbols_resolved": syms, "findings": _findings, "tests": _tests}, _t0)
+            _res = _compact_impact(store, syms, _deps, _tests, cfg)
+        else:
+            _res = {"symbols_resolved": syms, "findings": _findings, "tests": _tests}
+        if not_found and isinstance(_res, dict):
+            _res = dict(_res, not_found=not_found)
+        return _with_telemetry(name, args, _res, _t0)
     if name=="find_related_tests":
         raw=list(args.get("symbols",[]) or [])
-        syms=[]
+        syms=[]; missing=[]
         for s in raw:
             if store.get_node(s): syms.append(s)
             else:
                 r=_resolve(store, s)
                 if r: syms.append(r.id)
+                else: missing.append(s)
+        not_found = [dict(_unknown_ref(store, m), symbol=m) for m in missing]
         eo=[type("E",(),e)() for e in store.all_edges()]
         # Precedence (Phase 23): explicit `compact` flag wins; otherwise a
         # deployment-pinned server default (`mcp_defaults`); otherwise the
@@ -857,11 +927,16 @@ def call_tool(store, cfg, name: str, args: dict):
         if flag not in (True, 1, "true", "1"):
             if get_server_default(store, "find_tests_default") == "legacy":
                 return _with_telemetry(name, args, imp.find_tests(store.all_nodes(), eo, syms or raw, int(args.get("max_depth",3))), _t0)
-        return _with_telemetry(name, args, imp.find_tests_compact(
+        _ft = imp.find_tests_compact(
             store.all_nodes(), eo, syms or raw,
             int(args.get("max_depth", 3)),
             limit=int(args.get("limit", 200) or 200),
-            offset=int(args.get("offset", 0) or 0)), _t0)
+            offset=int(args.get("offset", 0) or 0))
+        if not_found and isinstance(_ft, dict):
+            _ft = dict(_ft, not_found=not_found)
+            if not syms:
+                _ft["warning"] = "none of the symbols is in the index, so '0 tests' means nothing; see not_found"
+        return _with_telemetry(name, args, _ft, _t0)
     if name=="get_changed_symbols" or name=="get_changes_since":
         rows=[dict(r) for r in store.cx.execute("SELECT * FROM snapshots ORDER BY created_at DESC LIMIT ?", (int(args.get("limit",10)) if name=="get_changes_since" else 2,)).fetchall()]
         return rows
