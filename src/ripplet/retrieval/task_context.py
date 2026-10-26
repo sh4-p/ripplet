@@ -420,6 +420,25 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
                                 (pf, px, px)).fetchone()
             inside = f" (in {holder[0].rsplit('.', 1)[-1]})" if holder else ""
             out.append(f"   <~ possible caller (receiver type unknown) @ {pf}:{px}{inside} :: {pcode}")
+    # The rest of the topic, by name only: the functions named with the task's distinctive words that did not make
+    # the top (`select_proxy`, `rebuild_proxies` next to `get_environ_proxies`). Reading the whole file shows an agent
+    # these neighbours; a ranked top-6 hides them.
+    shown_ids = {r[1] for r in picked}
+    # the topic's words: those the best matches carry in their names AND the task uses (`proxy`, `retry`)
+    seeds = sorted(picked, key=lambda r: -r[0])[:3]
+    topic_words = {t for r in seeds for t in set(_parts(r[3])) & tset if len(t) >= 4 and 0 < df[t] <= 60}
+    topic = []
+    for row in scored:
+        if row[1] in shown_ids or row[8] or _AUX_RX.search(row[5] or ""):
+            continue
+        if set(_parts(row[3])) & topic_words:
+            topic.append(row)
+            if len(topic) >= 10:
+                break
+    if topic:
+        out.append("")
+        out.append("=== Same topic, not expanded (explain_symbol expands any; pass several in `symbols`)")
+        out.extend(f"  {r[4]} ({r[2]}) @ {r[5]}:{r[6]}" for r in topic)
     out.append("")
     # routes and schema the task names
     routes = []

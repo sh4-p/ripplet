@@ -171,14 +171,22 @@ Caller lists are about as complete; where the graph has a gap, the agent is
 told so (UNVERIFIED) rather than given a confident wrong answer.
 
 The gain is in changes (renames, impact, the tests to run). Exploring tasks cost
-about the same with or without Ripplet, and not less: on 8 tasks in 4 small
-repositories (explain how X works, add a small helper), $1.31 with and $1.25
-without; on 4 tasks in two large ones (Exposed, Kotlin, 5.9k files; BookStack,
-PHP), $0.99 with and $0.85 without. One run each, so a difference under ~20% is
-noise, and the answers were not scored for quality. What decides the cost is the
-number of turns, not the size of the answers, so Ripplet batches (`explain_symbol`
+about the same with or without Ripplet: on 8 tasks in 4 small repositories (explain
+how X works, add a small helper), $1.31 with and $1.25 without; on 4 tasks in two
+large ones (Exposed, Kotlin, 5.9k files; BookStack, PHP), $0.99 with and $0.85
+without. One run each, so a difference under ~20% is noise. What decides the cost is
+the number of turns, not the size of the answers, so Ripplet batches (`explain_symbol`
 takes several names) and can add the task's context before the first turn
 (`--prefetch` below).
+
+Answer quality, on the six "explain how X works" tasks, scored against key facts
+(function names, files, settings) checked in each repository's source: without
+Ripplet the answers name 100% of them. With Ripplet they first named 93%: one
+answer followed `Session.send` and never reached the function that reads the
+`NO_PROXY` variable. `task_context` now lists the rest of the topic by name (the
+other `*proxy*` functions next to the top matches); since then 100% on two runs per
+task, at $0.123 against $0.142. The facts are easy for a model that reads whole
+files, so this shows Ripplet does not lose completeness, not that it adds any.
 
 ---
 
@@ -247,7 +255,7 @@ of them from the shell):
 
 | Tool | Use it for |
 |---|---|
-| `task_context` | the start of a task: the code it is about, callers (proven, and possible ones marked as such), routes / tables, the feature to imitate, files to edit, tests |
+| `task_context` | the start of a task: the code it is about, callers (proven, and possible ones marked as such), the rest of the topic by name, routes / tables, the feature to imitate, files to edit, tests |
 | `repo_map` | an unfamiliar repository: entry points, most-used files and symbols |
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
