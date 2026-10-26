@@ -141,6 +141,31 @@ def _line_offsets(text: str) -> list:
     return offs
 
 
+def _pname(t: str):
+    """The name of one declared parameter as its text spells it, or None when it is not a single plain name."""
+    head = re.split(r"\s*=\s*(?!=)", t.strip(), maxsplit=1)[0]
+    if head.lstrip().startswith(("*", "...")):
+        return None
+    if ":" in head:
+        head = head.split(":", 1)[0]
+    ids = re.findall(r"[A-Za-z_$][\w$]*", head)
+    return ids[-1] if ids else None
+
+
+def _permute(text, spans, perm):
+    """(offset, delete_length, insert) putting the items of one list in the order perm (new slot j takes item perm[j]),
+    keeping the separators and line breaks between the slots where they were."""
+    if list(perm) == sorted(perm):
+        return None
+    items = [text[a:b] for a, b in spans]
+    out = []
+    for j, k in enumerate(perm):
+        out.append(items[k])
+        if j < len(spans) - 1:
+            out.append(text[spans[j][1]:spans[j + 1][0]])
+    return spans[0][0], spans[-1][1] - spans[0][0], "".join(out)
+
+
 def _edit_list(text, spans, close, open_idx, op, position):
     """(offset, delete_length, insert) turning one argument/parameter list into the changed one, or None."""
     if op[0] == "add":
@@ -161,12 +186,16 @@ def _edit_list(text, spans, close, open_idx, op, position):
 
 
 def change_signature(store, cfg, symbol: str, add_param: dict | None = None, remove_param: str | None = None,
-                     apply: bool = True) -> str:
+                     apply: bool = True, reorder_params: list | None = None) -> str:
     """add_param: {decl, value?, position?}  decl is the parameter as the declaration spells it (`retries: Int = 0`),
     value what every call site passes (omit it where the default covers them), position a 0-based index (default:
-    last). remove_param: the name of the parameter to drop."""
-    if bool(add_param) == bool(remove_param):
-        return "change_signature: pass exactly one of add_param={decl, value?, position?} or remove_param=<name>."
+    last). remove_param: the name of the parameter to drop. reorder_params: every parameter name, in the new order."""
+    reorder = [str(x).strip() for x in reorder_params] if reorder_params else None
+    if bool(add_param) + bool(remove_param) + bool(reorder) != 1:
+        return ("change_signature: pass exactly one of add_param={decl, value?, position?}, remove_param=<name> "
+                "or reorder_params=[<every parameter name in the new order>].")
+    if reorder and len(set(reorder)) != len(reorder):
+        return "change_signature: reorder_params lists a name twice."
     cx = store.cx
     roots = [str(r) for r in (getattr(cfg, "workspace_roots", None) or ["."])]
     node, _others = _resolve(cx, symbol)
@@ -212,6 +241,7 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
     edits_by_file: dict = {}
     report_decl, report_call, skipped = [], [], []
     remove_index = None
+    perm = None
     decl_parens: set = set()
     texts = {}
     meta: dict = {}
@@ -255,7 +285,37 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
                 continue
             spans, close = scanned
             decl_parens.add((rel, found[1]))
-            if remove_param:
+            if reorder:
+                skip = 1 if spans and text[spans[0][0]:spans[0][1]].strip() in _SELF else 0
+                ptexts = [text[a:b] for a, b in spans][skip:]
+                names = [_pname(t) for t in ptexts]
+                if None in names or len(set(names)) != len(names):
+                    skipped.append(f"{rel}:{st}: declaration has parameters I cannot name one by one "
+                                   f"(grouped, variadic or unusual): reorder it by hand")
+                    continue
+                if sorted(names) != sorted(reorder):
+                    skipped.append(f"{rel}:{st}: its parameters are ({', '.join(names)}), not the names given")
+                    continue
+                this = [names.index(n) for n in reorder]
+                if perm is not None and this != perm:
+                    skipped.append(f"{rel}:{st}: parameters are in a different order than the first declaration")
+                    continue
+                if ext == ".py":
+                    seen_default, bad = False, False
+                    for k in this:
+                        t = ptexts[k]
+                        has_def = re.search(r"=(?!=)", t) is not None
+                        if seen_default and not has_def:
+                            bad = True
+                        seen_default = seen_default or has_def
+                    if bad:
+                        skipped.append(f"{rel}:{st}: a parameter without a default would follow one with a default")
+                        continue
+                perm = this
+                e = _permute(text, spans[skip:], perm)
+                if e is None:
+                    continue
+            elif remove_param:
                 ptexts = [text[a:b] for a, b in spans]
                 k = _param_names_index(spans, ptexts, remove_param)
                 if k is None:
@@ -273,7 +333,11 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
             edits.append(e + ("decl", text.count("\n", 0, e[0]) + 1))
             report_decl.append((rel, text.count("\n", 0, e[0]) + 1))
     # pass 2, call sites (an add with no `value` leaves them alone: the default covers them)
-    for rel in sorted(call_lines) if (op_call is not None or remove_param) else ():
+    if reorder and perm is None:
+        if not skipped:
+            return "change_signature: the order already is the one asked for, nothing to change."
+        return "\n".join(["change_signature: no declaration could be reordered; nothing was written."] + skipped[:10])
+    for rel in sorted(call_lines) if (op_call is not None or remove_param or reorder) else ():
         loaded = load(rel)
         if loaded is None:
             continue
@@ -296,7 +360,32 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
                     skipped.append(f"{rel}:{ln}: call could not be parsed")
                     continue
                 spans, close = scanned
-                if remove_param:
+                if reorder:
+                    if not spans:
+                        continue
+                    texts_a = [text[a:b] for a, b in spans]
+                    named_a = [re.match(r"\s*[A-Za-z_]\w*\s*=(?!=)", t) is not None for t in texts_a]
+                    if any(t.lstrip().startswith(("*", "...")) for t in texts_a):
+                        skipped.append(f"{rel}:{ln}: call spreads arguments (*, ...): reorder it by hand")
+                        continue
+                    if all(named_a):
+                        continue                       # every argument is named: the order does not matter
+                    if any(named_a) or len(spans) != len(perm):
+                        npos = named_a.index(True) if any(named_a) else len(spans)
+                        if any(named_a[npos:]) and not all(named_a[npos:]):
+                            skipped.append(f"{rel}:{ln}: call has a positional argument after a named one: reorder it by hand")
+                        elif npos <= len(perm) and set(perm[:npos]) == set(range(npos)):
+                            e = _permute(text, spans[:npos], perm[:npos])      # only the ones it passes by position move
+                            if e is not None:
+                                edits.append(e + ("call", ln))
+                                report_call.append((rel, ln))
+                        else:
+                            skipped.append(f"{rel}:{ln}: call passes {npos} of {len(perm)} arguments by position: reorder it by hand")
+                        continue
+                    e = _permute(text, spans, perm)
+                    if e is None:
+                        continue
+                elif remove_param:
                     idx = remove_index
                     named_arg = next((k for k, (a, b) in enumerate(spans)
                                       if re.match(r"\s*" + re.escape(remove_param) + r"\s*[:=](?!=)", text[a:b])), None)
@@ -346,7 +435,8 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
             p.write_bytes(new.encode("utf-8", errors="surrogateescape"))
         written[rel] = done
 
-    what = (f"add `{add_param['decl']}`" if add_param else f"remove `{remove_param}`")
+    what = (f"add `{add_param['decl']}`" if add_param else f"remove `{remove_param}`" if remove_param
+            else f"reorder to ({', '.join(reorder)})")
     verb = "changed" if apply else "would change"
     n_edits = sum(written.values())
     out = [f"# change_signature: {name}: {what}" + ("" if apply else " (dry run, nothing written)"),

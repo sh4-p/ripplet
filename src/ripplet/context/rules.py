@@ -58,8 +58,8 @@ calls through interfaces, DI, overrides and imports that text search misses.
   declaration, overrides, every call site and import itself, only on lines the
   graph proves, and returns the remaining text mentions to review. Do not open
   and edit each file by hand.
-- Adding or removing a parameter: call `change_signature` (symbol, add_param=
-  {decl, value} or remove_param=name). It edits the declaration, overrides and
+- Adding, removing or reordering parameters: call `change_signature` (symbol, add_param=
+  {decl, value}, remove_param=name or reorder_params=[all names in the new order]). It edits the declaration, overrides and
   EVERY call site the graph proves in one call; editing call sites one by one
   costs a turn each.
   The files are already edited when it returns: do not Read or Edit them again,
