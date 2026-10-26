@@ -199,6 +199,8 @@ Reordering parameters (`reorder_params`) on one Python task, swapping the first 
 without, both ending with the same file. One run each.
 Moving a function to a new module (`guess_filename` in requests, with its imports and two importers): $0.09 and 11 turns
 with `move_symbol` against $0.23 and 28 turns without; both ended with working imports and passing tests. One run each.
+Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
+(they use a name from their old module), none broke.
 
 Answer quality, on the six "explain how X works" tasks, scored against key facts
 (function names, files, settings) checked in each repository's source: without

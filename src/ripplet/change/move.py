@@ -93,12 +93,31 @@ def _bound_inside(fn: ast.AST) -> set:
 def _module_bindings(tree: ast.Module) -> tuple:
     """(imports, defs): name -> import statement node / name -> line of a top-level def, class or assignment."""
     imports, defs = {}, {}
+
+    def nested(body, guard):
+        for sub in body:
+            if isinstance(sub, (ast.Import, ast.ImportFrom)):
+                for a in sub.names:
+                    if a.name != "*":
+                        key = (a.asname or a.name).split(".")[0]
+                        # a name bound in more than one branch (TYPE_CHECKING / else / except) is conditional
+                        imports[key] = (sub, a, "other" if key in imports else guard)
+            elif isinstance(sub, ast.If):
+                tc = ast.unparse(sub.test) in ("TYPE_CHECKING", "typing.TYPE_CHECKING")
+                nested(sub.body, "tc" if tc else "other")
+                nested(sub.orelse, "other")
+            elif isinstance(sub, ast.Try):
+                for blk in (sub.body, sub.orelse, sub.finalbody, *[h.body for h in sub.handlers]):
+                    nested(blk, "other")
+
     for st in tree.body:
         if isinstance(st, (ast.Import, ast.ImportFrom)):
             for a in st.names:
                 if a.name == "*":
                     continue
-                imports[(a.asname or a.name).split(".")[0]] = (st, a)
+                imports[(a.asname or a.name).split(".")[0]] = (st, a, None)
+        elif isinstance(st, (ast.If, ast.Try)):
+            nested([st], None)
         elif isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             defs[st.name] = st.lineno
         elif isinstance(st, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
@@ -243,24 +262,45 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True) -> st
     imports_b, defs_b = _module_bindings(tree_b)
     if name in defs_b or name in imports_b:
         return f"move_symbol: {path_b.name} already defines or imports {name}; nothing was written."
-    add_lines = []
-    for nm, ist, alias in need_imports:
+    add_lines, tc_lines = [], []
+    for nm, ist, alias, guard in need_imports:
         if nm in imports_b:
             continue
         if nm in defs_b:
             return f"move_symbol: {path_b.name} defines {nm}, which {name} needs from an import; nothing was written."
+        if guard == "other":
+            return (f"move_symbol: {name} needs {nm}, which {rel_a} imports conditionally (try/except or an if); "
+                    f"nothing was written.")
         t = _import_text(ist, alias, path_a, path_b)
         if t is None:
             return (f"move_symbol: {name} needs the relative import of {nm}, and {path_b.name} is in another "
                     f"directory; nothing was written.")
-        add_lines.append(t)
+        (tc_lines if guard == "tc" else add_lines).append(t)
+    if tc_lines and "TYPE_CHECKING" not in imports_b:
+        add_lines.append("from typing import TYPE_CHECKING")
+
+    def has_future(tree):
+        return any(isinstance(x, ast.ImportFrom) and x.module == "__future__" for x in tree.body)
+
+    future = []
+    if has_future(tree_a) and not has_future(tree_b):
+        future = ["from __future__ import annotations"]
     lines_b = text_b.split("\n") if text_b else []
     at = _insertion_line(tree_b) if exists_b else 0
+    doc_end = 0
+    if tree_b.body and isinstance(tree_b.body[0], ast.Expr) and isinstance(getattr(tree_b.body[0], "value", None), ast.Constant) \
+            and isinstance(tree_b.body[0].value.value, str):
+        doc_end = tree_b.body[0].end_lineno
     head = [l.rstrip("\r") for l in lines_b[:at]]
     tail = [l.rstrip("\r") for l in lines_b[at:]]
     while tail and not tail[-1].strip():
         tail.pop()
-    out_b = head + add_lines + tail
+    if future:
+        head = head[:doc_end] + future + ([""] if len(head) > doc_end or add_lines or tc_lines else []) + head[doc_end:]
+    block = (["", "if TYPE_CHECKING:"] + ["    " + t for t in tc_lines]) if tc_lines else []
+    out_b = head + add_lines + block + tail
+    while out_b and not out_b[0].strip():
+        out_b.pop(0)
     if out_b:
         out_b += ["", ""]
     out_b += seg.split("\n")
@@ -346,8 +386,8 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True) -> st
     out = [f"# move_symbol: {name}" + ("" if apply else " (dry run, nothing written)"),
            f"{verb} {name} ({st.end_lineno - first + 1} lines) from {rel_a} to {rel(path_b)}" +
            ("" if exists_b else " (new file)")]
-    if add_lines:
-        out.append("imports added to the new module: " + "; ".join(add_lines))
+    if add_lines or tc_lines or future:
+        out.append("imports added to the new module: " + "; ".join(future + add_lines + tc_lines))
     for p, n in rewritten:
         out.append(f"imports rewritten in {rel(p)}: {n}")
     if keep:
