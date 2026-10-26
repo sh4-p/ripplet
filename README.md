@@ -170,11 +170,15 @@ Renames are as reliable at less than half the cost and a fifth of the turns.
 Caller lists are about as complete; where the graph has a gap, the agent is
 told so (UNVERIFIED) rather than given a confident wrong answer.
 
-The gain is in changes (renames, impact, the tests to run). Exploring tasks on
-small repositories cost about the same with or without Ripplet: 8 tasks (explain
-how X works, add a small helper), one run each, $1.31 with and $1.25 without;
-the explaining tasks were cheaper with it ($0.39 vs $0.54), the small features
-dearer ($0.92 vs $0.71).
+The gain is in changes (renames, impact, the tests to run). Exploring tasks cost
+about the same with or without Ripplet, and not less: on 8 tasks in 4 small
+repositories (explain how X works, add a small helper), $1.31 with and $1.25
+without; on 4 tasks in two large ones (Exposed, Kotlin, 5.9k files; BookStack,
+PHP), $0.99 with and $0.85 without. One run each, so a difference under ~20% is
+noise, and the answers were not scored for quality. What decides the cost is the
+number of turns, not the size of the answers, so Ripplet batches (`explain_symbol`
+takes several names) and can add the task's context before the first turn
+(`--prefetch` below).
 
 ---
 
@@ -187,7 +191,7 @@ overrides) for:
 |---|---|
 | Python | AST; imports, `__all__`, properties, `__call__`, typed attributes |
 | TypeScript / JavaScript | tree-sitter; namespaces, re-export barrels, workspaces, callbacks |
-| Java, Kotlin | packages, nested/anonymous classes, overloads, extension functions |
+| Java, Kotlin | packages (also across modules and source sets), nested/anonymous classes, overloads, extension functions, generic supertypes, negated calls |
 | C# | usings, generics, extension methods, local functions, `await Task<T>` |
 | Go | packages, interfaces, embedding, build tags |
 | Rust | modules, re-exports, workspaces, traits, macros |
@@ -210,6 +214,7 @@ Markdown docs, config files.
 ripplet setup .                 # init, index, .mcp.json / opencode.json, rules, skill, hooks, guard
 ripplet rules on . --target all # rules for every agent below
 ripplet rules on . --strict     # block the first raw read/grep until a Ripplet tool is used
+ripplet rules on . --prefetch   # Claude Code: add the task's Ripplet context to each request before the agent starts
 ```
 
 | Agent | Always-on guidance | Enforcement |
@@ -222,6 +227,14 @@ ripplet rules on . --strict     # block the first raw read/grep until a Ripplet 
 | Cursor | `.cursor/rules/ripplet.mdc` | |
 | GitHub Copilot | `.github/copilot-instructions.md` | |
 | Kiro, Windsurf, Antigravity, Cline | their rules folders | |
+
+**Prefetch (Claude Code, optional).** `ripplet rules on . --prefetch` adds a
+`UserPromptSubmit` hook: the request goes through `task_context`, and when it names
+code of the repository or the match is strong, the answer is added to the request
+before the agent starts (no tool call, no turn; about 1.6 s). On 389 real tasks it
+adds context for 40% of them, and the right file is among the first five in 95.5%
+of those; weaker matches add nothing. It is off by default because, measured with
+Haiku, it did not change cost. `RIPPLET_PREFETCH=0` switches it off for a session.
 
 This repository ships the same guidance as files you can copy:
 [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md), [`GEMINI.md`](GEMINI.md) and the

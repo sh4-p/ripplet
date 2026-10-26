@@ -33,10 +33,13 @@ This repository is indexed by Ripplet. Its tools answer code-structure
 questions from a prebuilt graph, with file:line for every fact. They know
 calls through interfaces, DI, overrides and imports that text search misses.
 
-- Starting a task: call `task_context` with the task text first. It returns the
-  code the task is about (with excerpts and real callers), related routes and
-  tables, an existing feature to imitate for "like X", the files to edit and
-  the tests that reach them.
+- If the request already carries a "Ripplet pre-fetched" block, that IS the
+  `task_context` answer: start from its files and symbols, and skip `task_context`
+  and `repo_map`. Ask `explain_symbol` / `get_neighbors` only for what it lacks.
+- Starting a task without that block: call `task_context` with the task text
+  first. It returns the code the task is about (with excerpts and real callers),
+  related routes and tables, an existing feature to imitate for "like X", the
+  files to edit and the tests that reach them.
 - New to this repository: call `repo_map` first. It lists entry points and the
   files and symbols the rest of the code uses most, with signatures.
 - A known name (class, function, method): call `explain_symbol` before Grep or

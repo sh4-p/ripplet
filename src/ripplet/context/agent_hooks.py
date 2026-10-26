@@ -2,6 +2,7 @@
 
     python -m ripplet.context.agent_hooks claude [--strict]   Claude Code / Codebuddy PreToolUse
     python -m ripplet.context.agent_hooks claude-post          PostToolUse on mcp__ripplet__*: stamps use
+    python -m ripplet.context.agent_hooks claude-prompt        UserPromptSubmit: the task's graph context, pre-fetched
     python -m ripplet.context.agent_hooks gemini               Gemini CLI BeforeTool
 
 Per agent session (Claude Code also sends `agent_id` for subagents):
@@ -152,6 +153,63 @@ def claude_post(ev: dict) -> None:
     _save(sd, key, st)
 
 
+PREFETCH_TOKENS = 1800
+PREFETCH_MIN_SCORE = 22
+_NOT_A_TASK = re.compile(r"^(hi|hello|hey|thanks?|thank you|ok|okay|yes|no|merhaba|selam|tamam|evet|hay[ıi]r|te[sş]ekk[uü]r)\b",
+                         re.I)
+
+
+def _task_like(prompt: str) -> bool:
+    p = prompt.strip()
+    return len(p) >= 20 and len(p.split()) >= 4 and not p.startswith(("/", "!", "#")) and not _NOT_A_TASK.match(p)
+
+
+def claude_prompt(ev: dict) -> dict | None:
+    """UserPromptSubmit: the agent's first discovery step is already done when it starts.
+
+    The task text goes through task_context (the code it is about, possible callers, files to edit, the
+    feature to imitate, tests) and the answer is added to the prompt: no tool call, no turn. Nothing is
+    added unless the graph found code for the task; RIPPLET_PREFETCH=0 turns it off."""
+    if os.environ.get("RIPPLET_PREFETCH", "1") == "0":
+        return None
+    prompt = str(ev.get("prompt") or "")
+    if not _task_like(prompt):
+        return None
+    root = Path(ev.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or ".")
+    from ..legacy import config_path
+    cfgp = next((c for d in [root, *root.parents] if (c := config_path(d)).is_file()), None)
+    if cfgp is None:
+        return None
+    from ..config import RippletConfig
+    from ..mcp.budget import fit_text
+    from ..retrieval.task_context import task_context
+    from ..storage.sqlite_store import SQLiteStore
+    cfg = RippletConfig.load(str(cfgp))
+    st = SQLiteStore(cfg.storage_path)
+    try:
+        try:
+            from ..mcp.freshness import ensure_fresh
+            ensure_fresh(st, cfg, "task_context")
+        except Exception:  # noqa: BLE001
+            pass
+        meta: dict = {}
+        text = task_context(st, cfg, prompt, _meta=meta)
+    finally:
+        st.close()
+    if not isinstance(text, str) or "=== Most relevant code" not in text:
+        return None                      # nothing found: say nothing rather than add noise
+    # Calibrated on 389 real tasks: a task that names symbols of the code, or a top match this strong, is
+    # right in 95% of cases (first five files); weaker matches are noise that costs more than it saves.
+    if not (meta.get("named", 0) >= 1 or meta.get("top_score", 0) >= PREFETCH_MIN_SCORE):
+        return None
+    body = fit_text(text.split("\n", 1)[1] if text.startswith("# task_context:") else text,
+                    "task_context", PREFETCH_TOKENS)
+    head = ("Ripplet pre-fetched this for your request (code graph facts computed before you started; links the "
+            "graph cannot prove are marked possible). Start from these files and symbols. For more call "
+            "explain_symbol / get_neighbors / check_change instead of grepping.\n")
+    return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": head + body}}
+
+
 def gemini(ev: dict) -> dict:
     """Gemini CLI BeforeTool: always allow; remind once per hour per project."""
     out = {"decision": "allow"}
@@ -181,6 +239,10 @@ def main(argv=None) -> int:
                 sys.stdout.write(json.dumps(res))
         elif kind == "claude-post":
             claude_post(ev)
+        elif kind == "claude-prompt":
+            res = claude_prompt(ev)
+            if res is not None:
+                sys.stdout.write(json.dumps(res))
         elif kind == "gemini":
             sys.stdout.write(json.dumps(gemini(ev)))
     except Exception:

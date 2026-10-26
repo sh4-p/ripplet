@@ -151,7 +151,9 @@ def _load_json(p: Path) -> dict:
     return d
 
 
-def install_claude_hooks(root: Path, t: str, strict: bool) -> Path:
+def install_claude_hooks(root: Path, t: str, strict: bool, prefetch: bool | None = None) -> Path:
+    """PreToolUse/PostToolUse hooks; `prefetch` adds the UserPromptSubmit context hook (True), removes it
+    (False) or leaves it as it is (None: re-running `rules on` must not undo an earlier choice)."""
     p = _settings_path(root, t)
     p.parent.mkdir(parents=True, exist_ok=True)
     cfg = _load_json(p)
@@ -163,6 +165,17 @@ def install_claude_hooks(root: Path, t: str, strict: bool) -> Path:
     post.append({"matcher": "mcp__ripplet__.*",
                  "hooks": [{"type": "command", "command": _guard_cmd("claude-post"), "timeout": 5}]})
     hooks["PreToolUse"], hooks["PostToolUse"] = pre, post
+    had = any(_is_ours(g) for g in hooks.get("UserPromptSubmit", []))
+    if prefetch or (prefetch is None and had):
+        prompt = [g for g in hooks.get("UserPromptSubmit", []) if not _is_ours(g)]
+        prompt.append({"hooks": [{"type": "command", "command": _guard_cmd("claude-prompt"), "timeout": 20}]})
+        hooks["UserPromptSubmit"] = prompt
+    elif had:
+        keep = [g for g in hooks.get("UserPromptSubmit", []) if not _is_ours(g)]
+        if keep:
+            hooks["UserPromptSubmit"] = keep
+        else:
+            hooks.pop("UserPromptSubmit", None)
     p.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return p
 
@@ -174,7 +187,7 @@ def remove_claude_hooks(root: Path, t: str) -> bool:
     cfg = _load_json(p)
     hooks = cfg.get("hooks") or {}
     changed = False
-    for ev in ("PreToolUse", "PostToolUse"):
+    for ev in ("PreToolUse", "PostToolUse", "UserPromptSubmit"):
         groups = hooks.get(ev) or []
         keep = [g for g in groups if not _is_ours(g)]
         if len(keep) != len(groups):
@@ -361,7 +374,8 @@ def remove_opencode_plugin(root: Path) -> bool:
 
 
 # ------------------------------------------------------------------- entry points
-def on(root: Path, target: str = "auto", strict: bool = False, hooks: bool = True) -> list:
+def on(root: Path, target: str = "auto", strict: bool = False, hooks: bool = True,
+       prefetch: bool | None = None) -> list:
     """Write every chosen agent's rules (and hooks); returns report lines."""
     out = []
     for t in resolve_targets(root, target):
@@ -372,8 +386,8 @@ def on(root: Path, target: str = "auto", strict: bool = False, hooks: bool = Tru
             continue
         if t in ("claude", "codebuddy"):
             out.append(f"{_settings_path(root, t).relative_to(root).as_posix()}: PreToolUse/PostToolUse hooks"
-                       + (" (strict)" if strict else ""))
-            install_claude_hooks(root, t, strict)
+                       + (" (strict)" if strict else "") + (" + UserPromptSubmit prefetch" if prefetch else ""))
+            install_claude_hooks(root, t, strict, prefetch)
         elif t == "opencode":
             install_opencode_plugin(root, strict)
             out.append(f"{OPENCODE_PLUGIN.as_posix()}: tool.execute.before plugin" + (" (strict)" if strict else ""))

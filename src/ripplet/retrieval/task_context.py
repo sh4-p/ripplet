@@ -143,7 +143,7 @@ def task_files(store, cfg, task: str, limit: int = 10) -> list:
 
 
 def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int = 12,
-                 _files_only: bool = False):
+                 _files_only: bool = False, _meta: dict | None = None):
     cx = store.cx
     roots = [str(r) for r in (getattr(cfg, "workspace_roots", None) or ["."])]
     terms = task_terms(task)
@@ -348,6 +348,10 @@ def task_context(store, cfg, task: str, max_symbols: int = 6, excerpt_lines: int
     fscore = {f: v[0] + 0.25 * sum(sorted(v, reverse=True)[1:5])
               for f, v in ((f, sorted(v, reverse=True)) for f, v in per_file_scores.items())}
     picked = sorted(picked, key=lambda r: (-fscore.get(r[5], 0.0), -r[0]))
+    if _meta is not None:
+        # how sure the match is, for callers that must decide whether to show it at all
+        _meta.update(top_score=round(max(r[0] for r in picked), 2), top_cover=max(r[9] for r in picked),
+                     named=len(exact & {r[3] for r in picked}), picked=len(picked))
     # Calls on a receiver the index could not type are not edges, so a helper like `getRetryInterval` shows
     # "used by 0" while the loop that answers the task calls it. Show those sites, marked as unproven.
     possible: dict = {}
