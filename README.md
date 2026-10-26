@@ -197,6 +197,8 @@ direction, not a precise figure.
 Reordering parameters (`reorder_params`) on one Python task, swapping the first two parameters of
 `merge_setting` in requests and all 9 call sites: $0.04 and 3 turns with the tool against $0.16 and 18 turns
 without, both ending with the same file. One run each.
+Moving a function to a new module (`guess_filename` in requests, with its imports and two importers): $0.09 and 11 turns
+with `move_symbol` against $0.23 and 28 turns without; both ended with working imports and passing tests. One run each.
 
 Answer quality, on the six "explain how X works" tasks, scored against key facts
 (function names, files, settings) checked in each repository's source: without
@@ -286,6 +288,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
+| `move_symbol` | moves a top-level Python function or class to another module in one call: the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
 | `change_signature` | adds, removes or reorders parameters on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name` / `reorder_params=[names]`, `dry_run`; a reorder permutes positional arguments, leaves named ones alone and lists calls it cannot prove); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |

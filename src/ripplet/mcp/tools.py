@@ -56,6 +56,8 @@ TOOL_DEFS = [
 # agent need not open a whole file only to be allowed to edit it. Not part of the default tool list.
 SANDBOX_TOOLS = ("read_code", "edit_code", "write_code")
 TOOL_DEFS.append(
+ {"name":"move_symbol","description":"Move a top-level Python function or class to another module: cuts it, pastes it with the imports it needs, rewrites `from old import name` everywhere, keeps a re-export where something still needs it. One call, all files or none.","inputSchema":{"type":"object","properties":{"symbol":{"type":"string"},"to_file":{"type":"string","description":"workspace path of the module to move it to (created when missing)"},"dry_run":{"type":"boolean"}},"required":["symbol","to_file"]}})
+TOOL_DEFS.append(
  {"name":"change_signature","description":"Add, remove or reorder the parameters of a function/method: edits its declaration (and overrides) and every call site the graph proves, in one call.","inputSchema":{"type":"object","properties":{"symbol":{"type":"string"},"add_param":{"type":"object","properties":{"decl":{"type":"string","description":"the parameter as the declaration spells it, e.g. `retries: Int = 0`"},"value":{"type":"string","description":"what every call site passes; omit where the default covers them"},"position":{"type":"integer","description":"0-based; default last"}},"required":["decl"]},"remove_param":{"type":"string","description":"name of the parameter to drop"},"reorder_params":{"type":"array","items":{"type":"string"},"description":"EVERY parameter name in the new order; call sites are permuted to match"},"dry_run":{"type":"boolean"}},"required":["symbol"]}})
 TOOL_DEFS.extend([
  {"name":"read_code","description":"Read code: symbol names and/or file paths in ONE call (a symbol returns its source, a path its numbered lines; start/end pick a range).","inputSchema":{"type":"object","properties":{"targets":{"type":"array","items":{"type":"string"}},"start":{"type":"integer"},"end":{"type":"integer"}},"required":["targets"]}},
@@ -68,7 +70,7 @@ _add_budget(TOOL_DEFS)
 # name; only the advertised set shrinks, because each advertised schema is
 # re-sent on every agent turn (~3k tokens for all 42 in a measured run) and
 # large catalogs get deferred behind tool search, so agents never call them.
-CORE_TOOLS = ("task_context", "repo_map", "investigate_error", "check_change", "change_plan", "rename_symbol", "change_signature", "feature_slice", "list_routes", "search_symbols", "explain_symbol", "get_neighbors",
+CORE_TOOLS = ("task_context", "repo_map", "investigate_error", "check_change", "change_plan", "rename_symbol", "change_signature", "move_symbol", "feature_slice", "list_routes", "search_symbols", "explain_symbol", "get_neighbors",
               "analyze_change_impact", "find_related_tests", "find_path",
               "query_graph", "expand_evidence")
 _CORE_HINTS = {
@@ -77,6 +79,7 @@ _CORE_HINTS = {
     "repo_map": "First call in an unfamiliar repo: entry points and the files/symbols the code uses most, ranked, with signatures. Replaces ls/glob/opening files to orient.",
     "investigate_error": "A test failed or something crashed: paste the trace/output. Returns each repo frame's function and code line, the code where it happened, callers, and where the message is thrown.",
     "rename_symbol": "To RENAME a symbol: does the whole rename itself (declarations, overrides, every call site and import), only on proven lines. One call instead of reading and editing every file.",
+    "move_symbol": "To MOVE a top-level Python function/class to another module: cut, paste, needed imports and every `from old import name` in one call; the files are already changed when it returns, do not re-edit them.",
     "change_signature": "To ADD, REMOVE or REORDER (reorder_params=[all names, new order]) parameters: edits the declaration (and overrides) and EVERY call site the graph proves in one call (add_param={decl, value}, remove_param=name). One call instead of one edit per call site; the files are already edited when it returns, so do not Read or Edit those sites again (only the lines it lists as NOT edited).",
     "change_plan": "BEFORE a rename / signature change / removal: every line to edit (overrides and each call site included), same-named code to leave alone. Use instead of grep.",
     "list_routes": "Security/permission audits and 'which endpoint does X': every route, its handler and the access checks it calls, write routes without a check first. Use instead of reading every controller.",
@@ -721,6 +724,9 @@ def call_tool(store, cfg, name: str, args: dict):
     if name=="rename_symbol":
         from ..change.rename import rename_symbol as _rn
         return _rn(store, cfg, args["symbol"], args.get("new_name") or "", apply=not args.get("dry_run"))
+    if name=="move_symbol":
+        from ..change.move import move_symbol as _mv
+        return _mv(store, cfg, args["symbol"], args.get("to_file") or "", apply=not args.get("dry_run"))
     if name=="change_signature":
         from ..change.signature import change_signature as _cs
         return _cs(store, cfg, args["symbol"], add_param=args.get("add_param"),
