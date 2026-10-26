@@ -17,7 +17,7 @@ from ...core.identifiers import (
 )
 from ...core.provenance import make_evidence
 
-JSTS_VERSION = "22"  # v22: class field initializers are walked for calls; v21: a call chained on a new line is recorded on the line of the called name; v20: undeclared return types inferred from the body; v19: TS field paths from typed locals/params; v18: callback params typed (annotation or callee callback type); v17: untyped locals marked receiver_local; v16: `import {x} from m; export {x}` re-exports x; v15: `T | undefined` and `new C<T>()` type locals; v14: locals of enclosing test blocks type nested calls; v13: generic type annotations type locals (Router<string>); v11: locals of test callbacks type the calls inside them; v10: module-scope locals (and those in its closures) typed; v9: export default {..} members, module.exports.x = y; v8: `export * as ns from`, test names not callable; v7: member-assigned functions, forward same-file calls, require().x; v5: arity/chain/static receiver annotations (v4: typed params)
+JSTS_VERSION = "23"  # v23: `export default f()` and destructuring default values are walked for calls; v22: class field initializers are walked for calls; v21: a call chained on a new line is recorded on the line of the called name; v20: undeclared return types inferred from the body; v19: TS field paths from typed locals/params; v18: callback params typed (annotation or callee callback type); v17: untyped locals marked receiver_local; v16: `import {x} from m; export {x}` re-exports x; v15: `T | undefined` and `new C<T>()` type locals; v14: locals of enclosing test blocks type nested calls; v13: generic type annotations type locals (Router<string>); v11: locals of test callbacks type the calls inside them; v10: module-scope locals (and those in its closures) typed; v9: export default {..} members, module.exports.x = y; v8: `export * as ns from`, test names not callable; v7: member-assigned functions, forward same-file calls, require().x; v5: arity/chain/static receiver annotations (v4: typed params)
 
 
 def module_qname(rel_path: str) -> str:
@@ -873,7 +873,19 @@ class _V:
                 # Local temporaries: no node (noise rule), but scan for calls
                 # attributed to the enclosing owner, never the module.
                 self._calls_in(value_node, owner, ".".join(self.scope))
+            if name_node.type in ("object_pattern", "array_pattern"):
+                self._pattern_defaults(name_node, owner, self.mod if top else ".".join(self.scope))
         return declared
+
+    def _pattern_defaults(self, pat, owner_id: str, owner_q: str):
+        """`const { a = f() } = o`: a default value runs when the property is missing."""
+        stack = [pat]
+        while stack:
+            n = stack.pop()
+            if n.type in ("object_assignment_pattern", "assignment_pattern") and n.children:
+                right = n.child_by_field_name("right") or n.children[-1]
+                self._calls_in(right, owner_id, owner_q)
+            stack.extend(n.children)
 
     # ----------------------------------------------------------------- imports
     def _import(self, node):
@@ -1051,6 +1063,11 @@ class _V:
         is_default = any(c.type == "default" for c in kids)
         is_type_only = any(c.type == "type" for c in kids[:3])
         if is_default:
+            for c in kids:
+                if c.type in ("call_expression", "new_expression", "await_expression", "binary_expression",
+                              "ternary_expression", "parenthesized_expression", "member_expression",
+                              "template_string"):
+                    self._calls_in(c, self.mod_id, self.mod)       # `export default f()`
             # `export default { a, b: c }`: a utils object; `import utils from` +
             # `utils.a()` reaches `a` through the member `default.a`
             for c in kids:
