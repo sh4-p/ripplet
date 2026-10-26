@@ -11,7 +11,7 @@ TOOL_DEFS = [
  {"name":"get_node","description":"Get node by id","inputSchema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
  {"name":"get_neighbors","description":"Neighbors with relation filter (offset/include_total paginate without silent truncation; absent = legacy list)","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"direction":{"type":"string","default":"both"},"relations":{"type":"array","items":{"type":"string"}},"limit":{"type":"integer","default":50},"offset":{"type":"integer","default":0,"description":"Skip this many neighbor rows."},"include_total":{"type":"boolean","description":"Opt-in envelope {results,total,offset,limit,complete,continuation}."},"known":{"type":"object","description":"Opt-in cross-call ledger {snapshot, ids}: edges already held are replaced by cited refs. Absent = full self-contained response."}},"telemetry":{"type":"boolean","description":"Opt-in envelope {data,telemetry} with latency_ms, response_bytes and retry_hint. Absent keeps the legacy shape."},"required":["id"]}},
  {"name":"find_path","description":"Shortest typed path between symbols","inputSchema":{"type":"object","properties":{"source":{"type":"string"},"target":{"type":"string"},"max_depth":{"type":"integer","default":6}},"required":["source","target"]}},
- {"name":"explain_symbol","description":"Explain symbol with deps and evidence","inputSchema":{"type":"object","properties":{"symbol":{"type":"string"}},"required":["symbol"]}},
+ {"name":"explain_symbol","description":"Explain symbol with deps and evidence","inputSchema":{"type":"object","properties":{"symbol":{"type":"string"},"symbols":{"type":"array","items":{"type":"string"}}},"required":[]}},
  {"name":"get_source_evidence","description":"Evidence rows for a node","inputSchema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
  {"name":"get_project_overview","description":"Counts, modules, top degrees","inputSchema":{"type":"object","properties":{}}},
  {"name":"get_module_dependencies","description":"Module-level depends_on graph","inputSchema":{"type":"object","properties":{"module":{"type":"string"}}}},
@@ -73,7 +73,7 @@ _CORE_HINTS = {
     "search_symbols": "Find a symbol by name: qualified name, type, file. Start here.",
     "get_neighbors": "Callers (direction=in) / callees (out) of a node id, one line each with call site file:line.",
     "analyze_change_impact": "What breaks if these symbols change: direct dependents with call sites + related tests.",
-    "explain_symbol": "One call: a symbol's location, source code, callers and callees (with call sites). Use instead of Read+Grep for a known name.",
+    "explain_symbol": "A symbol's location, source code, callers and callees (with call sites). Use instead of Read+Grep for a known name. Pass every name you need in `symbols` to get them all in ONE call.",
     "query_graph": "Natural-language question about the code: ranked matches + the best match's source, callers and callees.",
 }
 
@@ -172,7 +172,9 @@ def _resolve(store, ref: str):
     def _k(c):
         exact = 0 if (c.qualified_name.lower()==rl or c.label.lower()==rl or c.qualified_name.lower().endswith("."+rl)) else 1
         ext = 1 if c.type=="external_symbol" else 0
-        return (exact, ext, len(c.qualified_name))
+        # `compose` the function beats `compose.ts` the module (shorter qualified name)
+        mod = 1 if c.type in ("module", "package", "file") else 0
+        return (exact, ext, mod, len(c.qualified_name))
     return sorted(cands, key=_k)[0]
 def _ledger_snapshot(store) -> str:
     """Latest snapshot id (ledger revision pin). Empty when none exists."""
@@ -769,17 +771,30 @@ def call_tool(store, cfg, name: str, args: dict):
                                 "ambiguous_target": seeds["endpoints"][1]["ambiguous"],
                                 "weights": dict(_mh.PATH_WEIGHTS)}}
     if name=="explain_symbol":
+        refs = [s for s in (args.get("symbols") or []) if isinstance(s, str) and s.strip()]
+        if args.get("symbol") and args["symbol"] not in refs:
+            refs.insert(0, args["symbol"])
+        if not refs:
+            return {"error": "pass `symbol` or `symbols`"}
+        def _card(ref):
+            n = _resolve(store, ref)
+            if n is None or n.type not in _CODE_TYPES:
+                return None
+            cands = [c for c in store.search_symbols(ref.split(".")[-1], 8, partial=False)
+                     if c.type in _CODE_TYPES and c.id != n.id]
+            card = _symbol_card(store, cfg, n)
+            if cands:
+                card["other_matches"] = [f"{c.qualified_name} ({c.type}) @ {c.file_path} #{c.id}"
+                                         for c in cands[:5]]
+            return card
         if _compact_wanted(store, args, "explain_default"):
-            n = _resolve(store, args["symbol"])
-            if n is not None and n.type in _CODE_TYPES:
-                cands = [c for c in store.search_symbols(args["symbol"].split(".")[-1], 8, partial=False)
-                         if c.type in _CODE_TYPES and c.id != n.id]
-                card = _symbol_card(store, cfg, n)
-                if cands:
-                    card["other_matches"] = [f"{c.qualified_name} ({c.type}) @ {c.file_path} #{c.id}"
-                                             for c in cands[:5]]
+            if len(refs) > 1:
+                cards = [_card(r) or {"symbol": r, "error": "not found; try search_symbols"} for r in refs[:8]]
+                return _with_telemetry(name, args, {"symbols": cards}, _t0)
+            card = _card(refs[0])
+            if card is not None:
                 return _with_telemetry(name, args, card, _t0)
-        return execute(store,f"Explain how {args['symbol']} works",20)
+        return execute(store,f"Explain how {refs[0]} works",20)
     if name=="get_source_evidence":
         n=store.get_node(args["id"])
         if not n: return []

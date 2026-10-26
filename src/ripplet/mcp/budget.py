@@ -74,6 +74,9 @@ def budget_for(name: str, args: dict | None) -> int:
         b = 0
     if b <= 0:
         b = TOOL_BUDGETS.get(name, DEFAULT_BUDGET)
+        syms = (args or {}).get("symbols")
+        if name == "explain_symbol" and isinstance(syms, list) and len(syms) > 1:
+            b *= min(len(syms), 4)      # one call for several names must not be cut to one name's room
     return max(MIN_BUDGET, b)
 
 
