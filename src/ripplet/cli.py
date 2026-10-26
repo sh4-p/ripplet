@@ -64,6 +64,8 @@ def cmd_hooks(args):
             return 2
         p = _hook.install(root)
         print(f"compact Read/Grep hook enabled: {p}")
+        print("experimental: on 12 tasks with Haiku it raised cost by a third and lowered answer completeness "
+              "(the agent re-reads what the view hid); keep it off unless you measure a gain on your own tasks")
     elif args.action == "off":
         print("hook removed" if _hook.uninstall(root) else "no ripplet hook installed")
     else:

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/ripplet/"><img src="https://img.shields.io/pypi/v/ripplet" alt="PyPI"></a>
+  <a href="https://pypi.org/project/ripplet/"><img src="https://img.shields.io/pypi/v/ripplet?label=PyPI&cacheSeconds=600" alt="PyPI"></a>
   <img src="https://img.shields.io/pypi/pyversions/ripplet" alt="Python">
   <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue" alt="License">
   <img src="https://img.shields.io/badge/MCP-server-8A2BE2" alt="MCP">
