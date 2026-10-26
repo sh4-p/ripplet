@@ -17,7 +17,7 @@ targets only.
 from __future__ import annotations
 
 METHOD = "kotlin-resolve"
-VERSION = "5"  # v5: own distinctiveness (no Swift verb filter), Kotlin with*/coroutine stdlib names; v4: heritage through imports and star imports, distinctive repo-unique methods (inferred); v3: top-level funs of star-imported packages (all dirs of the package)
+VERSION = "6"  # v6: an import binds through the file's declared package (a package spans modules and source sets), not only a unique folder; v5: own distinctiveness (no Swift verb filter), Kotlin with*/coroutine stdlib names; v4: heritage through imports and star imports, distinctive repo-unique methods (inferred); v3: top-level funs of star-imported packages (all dirs of the package)
 
 
 # Kotlin stdlib extension names a repo may also declare: never bound by the
@@ -278,8 +278,10 @@ def resolve_repo(repo_id: str, repo_root: str, file_set: set[str],
         if a.get("glob_import"):
             # a package may span several source sets / modules: all its dirs
             _c = spec.replace(".", "/")
-            glob_dirs.setdefault(key, []).extend(
-                d_ for d_ in _kt_dirs if d_ == _c or d_.endswith("/" + _c))
+            _gd = [d_ for d_ in _kt_dirs if d_ == _c or d_.endswith("/" + _c)]
+            # ...and the folders of files that DECLARE this package, wherever they sit
+            _gd += sorted({f_.rpartition("/")[0] for f_ in pkg_files.get(spec, []) or []} - set(_gd))
+            glob_dirs.setdefault(key, []).extend(_gd)
             dd = _dir_of_package(spec)
             if dd is None:
                 diag["external_imports"] += 1
@@ -302,11 +304,14 @@ def resolve_repo(repo_id: str, repo_root: str, file_set: set[str],
             continue
         member = spec.rsplit(".", 1)[-1]
         pkg = spec.rpartition(".")[0]
-        dd = _dir_of_package(pkg)
-        if dd is None:
+        # the declared `package` is the truth: one package spans several source sets / modules / folders
+        files = sorted(set(pkg_files.get(pkg, []) or []))
+        if not files:
+            dd = _dir_of_package(pkg)
+            files = sorted(f for f in kt_files if f.rpartition("/")[0] == dd) if dd is not None else []
+        if not files:
             diag["external_imports"] += 1
             continue
-        files = sorted(f for f in kt_files if f.rpartition("/")[0] == dd)
         cands = []
         for f in files:
             cands.extend((file_syms.get(f, {}) or {}).get(member, []))
