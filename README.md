@@ -194,6 +194,9 @@ against $1.42 and 159 turns with the agent's own edits, and 70 of 70 call sites 
 a bare value after a keyword argument was a syntax error that sent the agent back to hand editing;
 both are fixed.) Sites the graph cannot prove are listed, not edited. Single runs: read it as a
 direction, not a precise figure.
+Reordering parameters (`reorder_params`) on one Python task, swapping the first two parameters of
+`merge_setting` in requests and all 9 call sites: $0.04 and 3 turns with the tool against $0.16 and 18 turns
+without, both ending with the same file. One run each.
 
 Answer quality, on the six "explain how X works" tasks, scored against key facts
 (function names, files, settings) checked in each repository's source: without
