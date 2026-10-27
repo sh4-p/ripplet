@@ -58,9 +58,9 @@ calls through interfaces, DI, overrides and imports that text search misses.
   declaration, overrides, every call site and import itself, only on lines the
   graph proves, and returns the remaining text mentions to review. Do not open
   and edit each file by hand.
-- Moving a top-level Python function or class to another module: call `move_symbol`
-  (symbol, to_file). It moves the definition with the imports it needs and rewrites
-  `from old import name` everywhere in one call; do not cut and paste by hand.
+- Moving a top-level Python or TypeScript/JavaScript function, class, type or const to another module:
+  call `move_symbol` (symbol, to_file). It moves the definition with the imports it needs and rewrites
+  `from old import name` / `import {name} from "./old"` everywhere in one call; do not cut and paste by hand.
 - Adding, removing or reordering parameters: call `change_signature` (symbol, add_param=
   {decl, value}, remove_param=name or reorder_params=[all names in the new order]). It edits the declaration, overrides and
   EVERY call site the graph proves in one call; editing call sites one by one

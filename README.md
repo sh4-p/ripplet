@@ -199,6 +199,13 @@ Reordering parameters (`reorder_params`) on one Python task, swapping the first 
 without, both ending with the same file. One run each.
 Moving a function to a new module (`guess_filename` in requests, with its imports and two importers): $0.09 and 11 turns
 with `move_symbol` against $0.23 and 28 turns without; both ended with working imports and passing tests. One run each.
+TypeScript and JavaScript (ES modules) are moved the same way, from tree-sitter syntax trees: imports of the moved code
+travel with it, `import {x} from './old'` and `export {x} from './old'` elsewhere are rewritten (`.js`/`.ts`/no-extension
+style kept), imports the old module no longer uses are dropped, and a barrel (`export *`), namespace import or
+`require`/`import()` keeps a re-export. It refuses CommonJS, default exports, a `declare module` that may augment the
+name, assignment to a moved `let`, and path-alias imports it cannot resolve are listed. Checked with `tsc`
+(errors compared with the untouched repo) on sampled exports with `with_dependencies`: h3 80 samples, 67 moved with no new
+error, 13 refused; hono 60 samples, 52 moved with no new error, 8 refused (the grammar misreads a few generic call signatures).
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and
@@ -292,7 +299,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
-| `move_symbol` | moves top-level Python functions or classes to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
+| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
 | `change_signature` | adds, removes or reorders parameters on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name` / `reorder_params=[names]`, `dry_run`; a reorder permutes positional arguments, leaves named ones alone and lists calls it cannot prove); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |

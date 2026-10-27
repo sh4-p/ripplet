@@ -247,6 +247,15 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
     wanted = [s.strip() for s in str(symbol).split(",") if s.strip()]
     if not wanted:
         return "move_symbol: pass the symbol to move."
+    first, _o = _resolve(cx, wanted[0])
+    ts_ext = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs")
+    if first is None and wanted:      # a module-level constant is a 'variable' node, which _resolve skips
+        first = next((r for r in cx.execute("SELECT * FROM nodes WHERE type='variable' AND label=?",
+                                            (wanted[0].split(".")[-1],)).fetchall()
+                      if (r["file_path"] or "").lower().endswith(ts_ext)), None)
+    if first is not None and (first["file_path"] or "").lower().endswith(ts_ext):
+        from .move_ts import move as _move_ts
+        return _move_ts(store, cfg, symbol, to_file, apply, with_dependencies, _resolve, _file)
     seeds, rel_a, path_a = [], None, None
     for sym in wanted:
         node, _others = _resolve(cx, sym)
