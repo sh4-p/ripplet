@@ -206,6 +206,8 @@ style kept), imports the old module no longer uses are dropped, and a barrel (`e
 name, assignment to a moved `let`, and path-alias imports it cannot resolve are listed. Checked with `tsc`
 (errors compared with the untouched repo) on sampled exports with `with_dependencies`: h3 80 samples, 75 moved with no new
 error, 5 refused; hono 60 samples, 52 moved with no new error, 8 refused (the grammar misreads a few generic call signatures).
+One TypeScript run (`getURLPathname` in h3, four importers, a new module): $0.17 and 17 turns with `move_symbol` against $0.21 and 25 turns without;
+both ended with no new `tsc` error. One run each.
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and

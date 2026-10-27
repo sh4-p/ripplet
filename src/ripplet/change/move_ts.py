@@ -140,6 +140,15 @@ def _unreadable(root, src: bytes, moved: set):
     return None
 
 
+def _source_files(root: Path) -> list:
+    """TS/JS files under root, never descending into node_modules, build output or dot directories."""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in _SKIP and not d.startswith("."))
+        out += [Path(dirpath) / f for f in sorted(filenames) if Path(f).suffix in TS_EXTS]
+    return out
+
+
 def _augmented(path: Path, names: list) -> list:
     """Names that a `declare module "x" { interface Name {...} }` / `declare global` block of this file re-opens."""
     try:
@@ -572,9 +581,8 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, with_dependencies: 
     rel = lambda p: str(Path(p).resolve().relative_to(root)).replace("\\", "/")
     rewritten, dynamic, unresolved, reach = [], [], [], False
     stem = path_a.stem if path_a.stem != "index" else path_a.parent.name
-    for p in sorted(root.rglob("*")):
-        if p.suffix not in TS_EXTS or any(x in _SKIP for x in p.relative_to(root).parts) \
-                or os.path.normcase(str(p.resolve())) in skip_a_b:
+    for p in _source_files(root):
+        if os.path.normcase(str(p.resolve())) in skip_a_b:
             continue
         try:
             raw = p.read_bytes()

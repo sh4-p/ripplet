@@ -54,6 +54,9 @@ calls through interfaces, DI, overrides and imports that text search misses.
 - A test failed or something crashed: pass the printed trace or error line to
   `investigate_error`. It maps each frame to its function and code, shows the
   code where it happened and its callers, and finds where the message is thrown.
+- If a tool named below is not callable yet (deferred), load it first with ToolSearch
+  `select:mcp__ripplet__rename_symbol,mcp__ripplet__move_symbol,mcp__ripplet__change_signature`
+  (the names you need), together with the other tools you plan to use, in ONE ToolSearch call.
 - Renaming a symbol: call `rename_symbol` (symbol, new_name). It edits the
   declaration, overrides, every call site and import itself, only on lines the
   graph proves, and returns the remaining text mentions to review. Do not open
