@@ -202,10 +202,10 @@ with `move_symbol` against $0.23 and 28 turns without; both ended with working i
 TypeScript and JavaScript (ES modules) are moved the same way, from tree-sitter syntax trees: imports of the moved code
 travel with it, `import {x} from './old'` and `export {x} from './old'` elsewhere are rewritten (`.js`/`.ts`/no-extension
 style kept), imports the old module no longer uses are dropped, and a barrel (`export *`), namespace import or
-`require`/`import()` keeps a re-export. It refuses CommonJS, default exports, a `declare module` that may augment the
+`require`/`import()` keeps a re-export. It refuses CommonJS, default exports, a `declare module` block that re-opens the
 name, assignment to a moved `let`, and path-alias imports it cannot resolve are listed. Checked with `tsc`
-(errors compared with the untouched repo) on sampled exports with `with_dependencies`: h3 80 samples, 67 moved with no new
-error, 13 refused; hono 60 samples, 52 moved with no new error, 8 refused (the grammar misreads a few generic call signatures).
+(errors compared with the untouched repo) on sampled exports with `with_dependencies`: h3 80 samples, 75 moved with no new
+error, 5 refused; hono 60 samples, 52 moved with no new error, 8 refused (the grammar misreads a few generic call signatures).
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and

@@ -140,6 +140,23 @@ def _unreadable(root, src: bytes, moved: set):
     return None
 
 
+def _augmented(path: Path, names: list) -> list:
+    """Names that a `declare module "x" { interface Name {...} }` / `declare global` block of this file re-opens."""
+    try:
+        src, root = _parse(path)
+    except Exception:
+        return []
+    out = []
+    for n in _walk(root):
+        if n.type == "ambient_declaration" and any(c.type in ("module", "global") for c in n.children):
+            for x in _walk(n):
+                if x.type in ("interface_declaration", "class_declaration", "enum_declaration"):
+                    nm = x.child_by_field_name("name")
+                    if nm is not None and _txt(src, nm) in names and _txt(src, nm) not in out:
+                        out.append(_txt(src, nm))
+    return out
+
+
 def _dir_example(path: Path) -> str:
     """A relative specifier used by a neighbour of `path`, to copy its extension style."""
     for q in sorted(path.parent.iterdir())[:40]:
@@ -497,7 +514,7 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, with_dependencies: 
 
     # imports to add to the new module, grouped per source statement
     by_stmt: dict = {}
-    for loc, (ist, kind, imp, nd) in need.items():
+    for loc, (ist, kind, imp, nd) in sorted(need.items(), key=lambda kv: kv[1][3].start_byte):
         by_stmt.setdefault(ist.start_byte, (ist, []))[1].append((loc, kind, imp, nd))
     new_import_texts, merges = [], []
     carried_names = []
@@ -564,11 +581,11 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, with_dependencies: 
         except OSError:
             continue
         txt = raw.decode("utf-8", errors="ignore")
-        if "declare module" in txt:
-            hit = [g for g in group if top[g]["kind"] in ("type", "class", "enum") and re.search(r"\b" + re.escape(g) + r"\b", txt)]
+        if "declare module" in txt or "declare global" in txt:
+            hit = _augmented(p, group)
             if hit:
-                return (f"move_symbol: {rel(p)} has a `declare module` block that may augment {', '.join(hit)} by its module path; "
-                        f"moving it would change what that merges into. Nothing was written.")
+                return (f"move_symbol: {rel(p)} augments {', '.join(hit)} in a `declare module` / `declare global` block; "
+                        f"moving the declaration would change what that merges into. Nothing was written.")
         if not (stem in txt):
             continue
         try:
