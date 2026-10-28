@@ -253,6 +253,9 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
         first = next((r for r in cx.execute("SELECT * FROM nodes WHERE type='variable' AND label=?",
                                             (wanted[0].split(".")[-1],)).fetchall()
                       if (r["file_path"] or "").lower().endswith(ts_ext)), None)
+    if first is not None and (first["file_path"] or "").lower().endswith(".cs"):
+        from .move_cs import move as _move_cs
+        return _move_cs(store, cfg, symbol, to_file, apply, _resolve, _file)
     if first is not None and (first["file_path"] or "").lower().endswith(".java"):
         from .move_java import move as _move_java
         return _move_java(store, cfg, symbol, to_file, apply, _resolve, _file)

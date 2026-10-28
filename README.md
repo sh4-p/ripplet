@@ -212,6 +212,12 @@ Java types move to another package: the file moves, its `package` line changes, 
 and files of the old package that used the type without an import gain one. It refuses a file with several top-level types and moves that
 would break package-private or protected access. Compiled with `javac` on commons-lang: two samples of 80 and 60 public types, 94 moved
 with no new error, 46 refused, none broke.
+C# types move to another file: the namespace follows the project's folder convention (an existing target keeps its own),
+files that used the type through the old namespace gain `using New;` (extension methods and Razor `@model` pages included),
+qualified names are rewritten and a `using` of a namespace that is now empty is removed. It refuses partial types and a target in
+another project. Built with `dotnet build` on eShopOnWeb, sampled public types: the Web project (two samples of 60) 119 moved with no new
+error and 1 refused, ApplicationCore (40) 37 moved and 3 refused. The first runs, before the Razor, extension-method and empty-namespace
+fixes, had 20 broken moves of 135.
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and
@@ -305,7 +311,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
-| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, or a Java class, interface, enum or record (to another package), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
+| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, a Java class, interface, enum or record (to another package), or a C# type (to another file, with its namespace and `using` directives fixed), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
 | `change_signature` | adds, removes or reorders parameters on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name` / `reorder_params=[names]`, `dry_run`; a reorder permutes positional arguments, leaves named ones alone and lists calls it cannot prove); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |
