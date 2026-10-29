@@ -226,6 +226,8 @@ several files (build tags). Checked with `go vet` (tests included) on gin, cobra
 same package 310 moved with no new error and 10 refused; to a new package 54 moved with no new error and 482 refused (these packages are
 flat and tightly coupled, so most unexported helpers cannot leave). One broken move found by the sampling (a const declared under two
 build tags) is now refused.
+One Go run (`StringToBytes` in gin, five other files use it, a new package): $0.08 and 10 turns with `move_symbol` against $0.23 and 34 turns without;
+both ended with `go vet` showing nothing new. One run each.
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and
