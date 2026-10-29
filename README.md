@@ -231,6 +231,13 @@ both ended with `go vet` showing nothing new. One run each.
 With `with_dependencies`, the unexported helpers of the same file that only the moved code uses (functions, types, their methods) travel along
 instead of blocking the move. New-package runs with it, 150 samples each (cobra 146): 62 moved with no new `go vet` error, 534 refused
 (gin 16, cobra 9, chi 29, testify 8 moved).
+PHP classes, interfaces, traits and enums move to another file: the namespace follows the composer.json psr-4 mapping of the new directory
+(an existing target file keeps its own), `use` lines, grouped `use`, fully qualified names, docblocks and class-name strings are rewritten,
+files of the old namespace that named the class bare gain a `use`, and the moved class gets `use` lines for the old-namespace classes it
+named. It refuses bracketed namespaces, several classes in one file, a global class, a new file not named after the class and a name
+that already exists in the new namespace. Checked without the mover's own parser (`php -l` on every changed file, a text scan for the old
+name, a scan for a missing `use`): koel and bookstack, 100 sampled classes each moved to a new namespace, 200 of 200 clean. The first run found
+`instanceof` references missed (4 of 200); fixed.
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and
@@ -324,7 +331,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
-| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, a Java class, interface, enum or record (to another package), a C# type, or a Go func, type, const or var (to another file, with its namespace and `using` directives fixed), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
+| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, a Java class, interface, enum or record (to another package), a C# type, a Go func, type, const or var, or a PHP class, interface, trait or enum (to another file, with its namespace and `using` directives fixed), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
 | `change_signature` | adds, removes or reorders parameters on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name` / `reorder_params=[names]`, `dry_run`; a reorder permutes positional arguments, leaves named ones alone and lists calls it cannot prove); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |

@@ -249,6 +249,15 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
         return "move_symbol: pass the symbol to move."
     first, _o = _resolve(cx, wanted[0])
     ts_ext = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs")
+    if first is not None and to_file and len(wanted) == 1 and _o:
+        # the same name in several languages: the target file says which one is meant
+        fam = lambda f: "ts" if str(f).lower().endswith(ts_ext) else Path(str(f)).suffix.lower()
+        want = fam(to_file)
+        if fam(first["file_path"] or "") != want:
+            alt = next((n for n in _o if fam(n["file_path"] or "") == want), None)
+            if alt is not None:
+                first, symbol = alt, alt["id"]
+                wanted = [alt["id"]]
     if first is None and wanted:      # a module-level constant is a 'variable' node, which _resolve skips
         first = next((r for r in cx.execute("SELECT * FROM nodes WHERE type='variable' AND label=?",
                                             (wanted[0].rpartition("::")[2].split(".")[-1],)).fetchall()
@@ -259,6 +268,9 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
     if first is not None and (first["file_path"] or "").lower().endswith(".go"):
         from .move_go import move as _move_go
         return _move_go(store, cfg, symbol, to_file, apply, _resolve, _file, with_dependencies)
+    if first is not None and (first["file_path"] or "").lower().endswith(".php"):
+        from .move_php import move as _move_php
+        return _move_php(store, cfg, symbol, to_file, apply, _resolve, _file)
     if first is not None and (first["file_path"] or "").lower().endswith(".cs"):
         from .move_cs import move as _move_cs
         return _move_cs(store, cfg, symbol, to_file, apply, _resolve, _file)
