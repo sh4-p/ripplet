@@ -255,10 +255,10 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
                       if (r["file_path"] or "").lower().endswith(ts_ext + (".go",))), None)
     if first is None and wanted[0].rpartition("::")[0].lower().endswith(".go"):
         from .move_go import move as _move_go     # a Go const is not a graph node: path::name finds it in the file
-        return _move_go(store, cfg, symbol, to_file, apply, _resolve, _file)
+        return _move_go(store, cfg, symbol, to_file, apply, _resolve, _file, with_dependencies)
     if first is not None and (first["file_path"] or "").lower().endswith(".go"):
         from .move_go import move as _move_go
-        return _move_go(store, cfg, symbol, to_file, apply, _resolve, _file)
+        return _move_go(store, cfg, symbol, to_file, apply, _resolve, _file, with_dependencies)
     if first is not None and (first["file_path"] or "").lower().endswith(".cs"):
         from .move_cs import move as _move_cs
         return _move_cs(store, cfg, symbol, to_file, apply, _resolve, _file)

@@ -228,6 +228,9 @@ flat and tightly coupled, so most unexported helpers cannot leave). One broken m
 build tags) is now refused.
 One Go run (`StringToBytes` in gin, five other files use it, a new package): $0.08 and 10 turns with `move_symbol` against $0.23 and 34 turns without;
 both ended with `go vet` showing nothing new. One run each.
+With `with_dependencies`, the unexported helpers of the same file that only the moved code uses (functions, types, their methods) travel along
+instead of blocking the move. New-package runs with it, 150 samples each (cobra 146): 62 moved with no new `go vet` error, 534 refused
+(gin 16, cobra 9, chi 29, testify 8 moved).
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and

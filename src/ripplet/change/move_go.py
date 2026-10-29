@@ -322,7 +322,7 @@ def _fresh_alias(base: str, taken: set) -> str:
     return n
 
 
-def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of) -> str:
+def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of, with_dependencies: bool = False) -> str:
     cx = store.cx
     roots = [Path(str(r)) for r in (getattr(cfg, "workspace_roots", None) or ["."])]
     if "," in symbol:
@@ -466,6 +466,39 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of) -
                 if nm != "_":
                     old_tops.setdefault(nm, []).append(p)
 
+    deps_moved: list = []
+    if cross and with_dependencies:
+        # unexported helpers of this file that only the moved code uses leave with it
+        hd = b"package x\n"
+        grew = True
+        while grew:
+            grew = False
+            used = set()
+            for a, b in pieces:
+                sub = hd + src_a[a:b]
+                used |= {_txt(sub, n) for n in _walk(_parse_bytes(sub)) if n.type in ("identifier", "type_identifier")}
+            for d in sorted((used & set(tops)) - moved_names):
+                ent_d = tops[d]
+                if len(ent_d) != 1 or _is_exported(d) or d in ("init", "main", "_"):
+                    continue
+                k_d, node_d, nsp_d, nn_d = ent_d[0]
+                if nsp_d > 1 or nn_d > 1 or (k_d == "func" and node_d.child_by_field_name("receiver") is not None):
+                    continue
+                if any(f != path_a for f in old_tops.get(d, [])):
+                    continue
+                extra = [(_doc_start(src_a, node_d), node_d.end_byte)]
+                if k_d == "type":
+                    if any(r == d for p2, s3, t3, pk3 in pkg_files if p2 != path_a for _c, r, _m in _methods(s3, t3)):
+                        continue
+                    extra += [(_doc_start(src_a, m), m.end_byte) for m, r, _mn in meths if r == d]
+                new_pieces = sorted(pieces + extra)
+                if any(_bare_refs(s3, t3, {d}, new_pieces if p3 == path_a else [])[0] for p3, s3, t3, pk3 in pkg_files
+                       if pk3 == pkg_a):
+                    continue                            # something else in the package still needs it
+                pieces, grew = new_pieces, True
+                moved_names.add(d)
+                deps_moved.append(d)
+
     if cross:
         # unexported fields / methods are reachable only inside the old package
         moved_decl, moved_used = set(), set()
@@ -537,6 +570,14 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of) -
     if any(f != path_a for f in old_tops.get(name, [])):
         return (f"move_symbol: package {pkg_a} declares {name} in more than one file (build tags?); "
                 f"nothing was written.")
+    for dn in deps_moved:
+        if src_b0 is not None and dn in _tops(src_b0, _parse_bytes(src_b0)):
+            return f"move_symbol: {path_b.name} already declares {dn}, which {name} needs; nothing was written."
+        for p in _go_files(dir_b):
+            if p.parent == dir_b and p != path_b:
+                s2 = p.read_bytes()
+                if _pkg_clause(s2, _parse_bytes(s2)) == pkg_b and dn in _tops(s2, _parse_bytes(s2)):
+                    return f"move_symbol: package {pkg_b} already declares {dn}, which {name} needs; nothing was written."
 
     # imports the moved code needs from A's imports
     chunk_src = head + chunk
@@ -673,7 +714,9 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of) -
             path_a.unlink()
     verb = "moved" if apply else "would move"
     lines = [f"# move_symbol: {name}" + ("" if apply else " (dry run, nothing written)")]
-    extra = f" + {len(pieces) - 1} method(s)" if len(pieces) > 1 else ""
+    extra = f" + {len(pieces) - 1} method(s) / helper(s)" if len(pieces) > 1 else ""
+    if deps_moved:
+        extra += f"; helpers moved along: {', '.join(deps_moved)}"
     if cross:
         lines.append(f"{verb} {name} ({kind}{extra}) from package {pkg_a} to {pkg_b}: {rel_a} -> {rel(path_b)}")
         lines.append(f"import path {old_path} -> {new_path}")
