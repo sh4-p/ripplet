@@ -238,6 +238,13 @@ named. It refuses bracketed namespaces, several classes in one file, a global cl
 that already exists in the new namespace. Checked without the mover's own parser (`php -l` on every changed file, a text scan for the old
 name, a scan for a missing `use`): koel and bookstack, 100 sampled classes each moved to a new namespace, 200 of 200 clean. The first run found
 `instanceof` references missed (4 of 200); fixed.
+Dart classes, mixins, enums, typedefs, functions and consts move to another file: the moved code takes the old file's imports (relative
+ones re-based) and imports the old file for the public names it uses, a library that re-exported the old file re-exports the new one
+(the package API keeps the name), other libraries that saw the name through imports gain `import 'new.dart' show Name;` (same prefix
+when they wrote `p.Name`), `part of` files follow their owner library. It refuses part libraries, extensions, conditional imports,
+private names the moved code needs and private or unnamed extensions whose members it calls. Checked with `dart analyze` (errors
+compared with the untouched package) on dio: two samples, 64 moved with no new error and 64 refused; bloc: 5 of 5. The first run had 4
+broken moves of 60 (extension members, a conditional import, `part of` files); all three causes are handled now.
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and
@@ -331,7 +338,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
-| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, a Java class, interface, enum or record (to another package), a C# type, a Go func, type, const or var, or a PHP class, interface, trait or enum (to another file, with its namespace and `using` directives fixed), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
+| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, a Java class, interface, enum or record (to another package), a C# type, a Go func, type, const or var, a PHP class, interface, trait or enum, or a Dart class, mixin, enum, typedef, function or const (to another file, with its namespace and `using` directives fixed), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
 | `change_signature` | adds, removes or reorders parameters on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name` / `reorder_params=[names]`, `dry_run`; a reorder permutes positional arguments, leaves named ones alone and lists calls it cannot prove); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |
