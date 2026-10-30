@@ -261,7 +261,10 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
     if first is None and wanted:      # a module-level constant is a 'variable' node, which _resolve skips
         first = next((r for r in cx.execute("SELECT * FROM nodes WHERE type='variable' AND label=?",
                                             (wanted[0].rpartition("::")[2].split(".")[-1],)).fetchall()
-                      if (r["file_path"] or "").lower().endswith(ts_ext + (".go", ".dart", ".rs", ".kt", ".rb", ".lua"))), None)
+                      if (r["file_path"] or "").lower().endswith(ts_ext + (".go", ".dart", ".rs", ".kt", ".rb", ".lua", ".gd"))), None)
+    if first is None and wanted[0].rpartition("::")[0].lower().endswith(".gd"):
+        from .move_gdscript import move as _move_gd
+        return _move_gd(store, cfg, symbol, to_file, apply, _resolve, _file)
     if first is None and wanted[0].rpartition("::")[0].lower().endswith(".lua"):
         from .move_lua import move as _move_lua
         return _move_lua(store, cfg, symbol, to_file, apply, _resolve, _file)
@@ -283,6 +286,9 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
     if first is not None and (first["file_path"] or "").lower().endswith(".go"):
         from .move_go import move as _move_go
         return _move_go(store, cfg, symbol, to_file, apply, _resolve, _file, with_dependencies)
+    if first is not None and (first["file_path"] or "").lower().endswith(".gd"):
+        from .move_gdscript import move as _move_gd
+        return _move_gd(store, cfg, symbol, to_file, apply, _resolve, _file)
     if first is not None and (first["file_path"] or "").lower().endswith(".lua"):
         from .move_lua import move as _move_lua
         return _move_lua(store, cfg, symbol, to_file, apply, _resolve, _file)

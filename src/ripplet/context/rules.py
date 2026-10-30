@@ -62,7 +62,7 @@ calls through interfaces, DI, overrides and imports that text search misses.
   graph proves, and returns the remaining text mentions to review. Do not open
   and edit each file by hand.
 - Moving a top-level Python or TypeScript/JavaScript function, class, type or const to another module, a Java
-  class to another package, a C# type to another file, a Go func/type/const/var to another file or package, a PHP class to another file, a Dart declaration to another file, a Rust item to another module file, a Kotlin declaration to another file or package, a Ruby class/module/method to another file, or a Lua module function to another module: call `move_symbol` (symbol, to_file). It moves the definition with the imports it needs and rewrites
+  class to another package, a C# type to another file, a Go func/type/const/var to another file or package, a PHP class to another file, a Dart declaration to another file, a Rust item to another module file, a Kotlin declaration to another file or package, a Ruby class/module/method to another file, a Lua module function to another module, or a GDScript static func/const/class to another script: call `move_symbol` (symbol, to_file). It moves the definition with the imports it needs and rewrites
   `from old import name` / `import {name} from "./old"` everywhere in one call; do not cut and paste by hand.
 - Adding, removing or reordering parameters: call `change_signature` (symbol, add_param=
   {decl, value}, remove_param=name or reorder_params=[all names in the new order]). It edits the declaration, overrides and
