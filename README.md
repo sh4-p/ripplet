@@ -255,6 +255,15 @@ module the moved code needs, macros defined in the old file, `#[path]` modules a
 self-written 11-file crate (generics, nested and inline modules, glob and `pub use` facades, aliases, body-level `use`, traits): 205 moves into
 7 targets compile, 54 were refused, none broke; the first runs had 8 broken moves from `use x::{self}` leaves, trait imports not named in the
 code, glob-reached modules, tuple variants and import clashes in an existing target, all fixed. Third-party crates were not compiled here.
+Kotlin classes, objects, interfaces, enums, functions, properties and typealiases move to another file, in the same package or another
+one (a new file gets the package its directory names): `import old.pkg.Name` (also member imports and `as` aliases) and fully qualified
+uses name the new package, files of the old package that used the name without an import and `import old.pkg.*` users gain an import,
+a file of the new package drops the redundant one, the moved code gets the imports it uses and an import for each name of the old package
+it used implicitly, and a `private` declaration the old file still uses becomes `internal`. It refuses overloads, private declarations
+of the old file that the moved code needs and a target package that already has the name. Checked with kotlinc on a self-written
+6-file project (data classes, extension functions, aliased and wildcard imports, typealiases, private members): 70 moves into 4 targets
+compile, 14 were refused, none broke; the first runs had 4 broken moves from imports inside an existing target and an alias import that
+hides the original name, both fixed.
 Checked on 55 sampled symbols of requests and starlette: 22 moved and still compile and import, 33 were refused
 (they use a name from their old module), none broke. With `with_dependencies` the functions, classes and constants
 the symbol needs move along (several symbols can also be listed, comma separated): 200 sampled symbols, 166 moved and
@@ -348,7 +357,7 @@ of them from the shell):
 | `explain_symbol` | a known name, or several at once (`symbols=[...]`): source, every caller and callee with the call's code |
 | `get_neighbors`, `analyze_change_impact` | who calls it / what breaks, with every call line; names work as well as ids, and a symbol nothing calls says so |
 | `change_plan`, `rename_symbol` | renames and signature changes: every line to edit, same-named code to leave alone |
-| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, a Java class, interface, enum or record (to another package), a C# type, a Go func, type, const or var, a PHP class, interface, trait or enum, a Dart class, mixin, enum, typedef, function or const, or a Rust fn, struct, enum, union, trait, type, const or static (to another file, with its namespace and `using` directives fixed), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
+| `move_symbol` | moves top-level Python functions or classes, or TypeScript/JavaScript (ES module) functions, classes, types, enums and consts, a Java class, interface, enum or record (to another package), a C# type, a Go func, type, const or var, a PHP class, interface, trait or enum, a Dart class, mixin, enum, typedef, function or const, a Rust fn, struct, enum, union, trait, type, const or static, or a Kotlin class, object, interface, function, property or typealias (to another file, with its namespace and `using` directives fixed), to another module in one call (`with_dependencies` brings what they need from the old module): the definition with the imports it needs, every `from old import name` rewritten (layout kept), a re-export left where something still needs the old path; refuses (writing nothing) when the symbol uses a name defined in its old module, since that would make the modules import each other; `dry_run` |
 | `change_signature` | adds, removes or reorders parameters on the declaration and every call site in one call (`add_param={decl, value}` / `remove_param=name` / `reorder_params=[names]`, `dry_run`; a reorder permutes positional arguments, leaves named ones alone and lists calls it cannot prove); unproven call sites are listed, not edited |
 | `investigate_error` | a stack trace or log line mapped to functions, code and callers |
 | `check_change` | after editing: broken callers, leftovers, the exact tests to run (and a note when your test folder is not in the index) |
