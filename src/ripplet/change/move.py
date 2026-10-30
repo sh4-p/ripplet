@@ -251,7 +251,7 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
     ts_ext = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs")
     if first is not None and to_file and len(wanted) == 1 and _o:
         # the same name in several languages: the target file says which one is meant
-        fam = lambda f: "ts" if str(f).lower().endswith(ts_ext) else Path(str(f)).suffix.lower()
+        fam = lambda f: "ts" if str(f).lower().endswith(ts_ext) else "c" if str(f).lower().endswith((".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh", ".hxx")) else Path(str(f)).suffix.lower()
         want = fam(to_file)
         if fam(first["file_path"] or "") != want:
             alt = next((n for n in _o if fam(n["file_path"] or "") == want), None)
@@ -261,7 +261,13 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
     if first is None and wanted:      # a module-level constant is a 'variable' node, which _resolve skips
         first = next((r for r in cx.execute("SELECT * FROM nodes WHERE type='variable' AND label=?",
                                             (wanted[0].rpartition("::")[2].split(".")[-1],)).fetchall()
-                      if (r["file_path"] or "").lower().endswith(ts_ext + (".go", ".dart", ".rs", ".kt", ".rb", ".lua", ".gd", ".swift"))), None)
+                      if (r["file_path"] or "").lower().endswith(ts_ext + (".go", ".dart", ".rs", ".kt", ".rb", ".lua", ".gd", ".swift", ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh", ".hxx"))), None)
+    if first is None and (wanted[0].rpartition("::")[0] == "") and str(to_file).lower().endswith((".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh", ".hxx")):
+        from .move_c import move as _move_c      # a typedef / struct is not a graph node: the C mover looks in the files
+        return _move_c(store, cfg, symbol, to_file, apply, _resolve, _file)
+    if first is None and wanted[0].rpartition("::")[0].lower().endswith((".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh", ".hxx")):
+        from .move_c import move as _move_c
+        return _move_c(store, cfg, symbol, to_file, apply, _resolve, _file)
     if first is None and wanted[0].rpartition("::")[0].lower().endswith(".swift"):
         from .move_swift import move as _move_sw
         return _move_sw(store, cfg, symbol, to_file, apply, _resolve, _file)
@@ -289,6 +295,9 @@ def move_symbol(store, cfg, symbol: str, to_file: str, apply: bool = True, with_
     if first is not None and (first["file_path"] or "").lower().endswith(".go"):
         from .move_go import move as _move_go
         return _move_go(store, cfg, symbol, to_file, apply, _resolve, _file, with_dependencies)
+    if first is not None and (first["file_path"] or "").lower().endswith((".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh", ".hxx")):
+        from .move_c import move as _move_c
+        return _move_c(store, cfg, symbol, to_file, apply, _resolve, _file)
     if first is not None and (first["file_path"] or "").lower().endswith(".swift"):
         from .move_swift import move as _move_sw
         return _move_sw(store, cfg, symbol, to_file, apply, _resolve, _file)
