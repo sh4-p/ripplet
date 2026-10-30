@@ -534,14 +534,14 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of) -
         for x in _walk(p):
             if x.type == "field_declaration" and p.type in ("struct_item", "union_item"):
                 widen_node(x, _name(src_a, x), ed)
-            elif x.type == "ordered_field_declaration_list" and p.type == "struct_item" and x.parent is p and name in scope_words:
+            elif x.type == "ordered_field_declaration_list" and p.type == "struct_item" and x.parent == p and name in scope_words:
                 for ch in x.children:
                     if ch.is_named and ch.type not in ("visibility_modifier", "attribute_item"):
                         vm = ch.prev_sibling
                         if not (vm is not None and vm.type == "visibility_modifier" and _t(src_a, vm).startswith("pub")):
                             ed.append((ch.start_byte, ch.start_byte, b"pub(crate) "))
                             widened.append(name)
-            elif inherent and x.type in ("function_item", "const_item", "type_item") and x.parent is not None and x.parent.parent is p:
+            elif inherent and x.type in ("function_item", "const_item", "type_item") and x.parent is not None and x.parent.parent == p:
                 widen_node(x, _name(src_a, x), ed)
 
     for p in pieces:                         # a path into a nested inline module whose item the new module can't reach
@@ -587,7 +587,7 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of) -
         if ed is None:
             return "move_symbol: a `super::` path in the item leaves the crate root; nothing was written."
         widen_members(p, ed)
-        if p is item:
+        if p == item:
             widen_node(p, name, ed)
         sub = [(a - s, b - s, r) for a, b, r in ed if s <= a and b <= e]
         chunks.append(_apply(src_a[s:p.end_byte], sub))

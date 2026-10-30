@@ -234,7 +234,7 @@ def move(store, cfg, symbol: str, to_file: str, apply: bool, resolve, file_of) -
     for w in reversed(chain):
         b = _body(w)
         kids = [c for c in (b.children if b is not None else []) if c.type != "comment"]
-        if len(kids) == 1 and kids[0] is outer:
+        if len(kids) == 1 and kids[0] == outer:
             outer = w
         else:
             break
