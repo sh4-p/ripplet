@@ -150,6 +150,23 @@ ripplet arch                    # architecture rules in ripplet.arch.yaml
 ripplet ui .                    # browse the graph
 ```
 
+**GitHub Action.** Reviews every pull request with proof and no LLM: findings show
+on the diff (SARIF) and as one sticky comment.
+
+```yaml
+# .github/workflows/ripplet.yml
+on: pull_request
+permissions: { contents: read, pull-requests: write, security-events: write }
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: sh4-p/ripplet@v1
+        # with: { fail-on: error }   # error | warning | note | never
+```
+
 | Agent | Always-on guidance | Enforcement |
 |---|---|---|
 | Claude Code | `CLAUDE.md` + skill | PreToolUse / PostToolUse hooks, Stop-hook change guard |

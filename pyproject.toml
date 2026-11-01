@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ripplet"
-version = "0.1.3.20"
+version = "0.1.3.21"
 description = "Change guard and refactoring engine for coding agents: catches broken callers, schema and endpoint gaps after an edit, and does rename, change-signature and move-symbol across 14 languages - local code graph, over MCP, CLI and a web UI"
 readme = "README.md"
 requires-python = ">=3.12"

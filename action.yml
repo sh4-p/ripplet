@@ -1,0 +1,76 @@
+name: "Ripplet review"
+description: "Evidence-based PR review: broken callers, leftovers of a replaced symbol, schema and endpoint gaps, architecture rules. SARIF annotations plus a PR comment. No LLM."
+author: "Mehmet Emin Madanoglu"
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  fail-on:
+    description: "Fail the check on findings of this level or above: error, warning, note or never"
+    default: "error"
+  comment:
+    description: "Post the Markdown report as a sticky PR comment (needs pull-requests: write)"
+    default: "true"
+  sarif:
+    description: "Upload SARIF so findings show on the PR diff (needs security-events: write)"
+    default: "true"
+  version:
+    description: "Ripplet version to install, e.g. 0.1.3.20. Empty = latest"
+    default: ""
+  python-version:
+    description: "Python used to run Ripplet (3.12 or newer)"
+    default: "3.12"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Ripplet
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then spec="ripplet[treesitter,treesitter-multilang]==${{ inputs.version }}"; else spec="ripplet[treesitter,treesitter-multilang]"; fi
+        pip install "$spec"
+
+    - name: Index the base
+      shell: bash
+      run: |
+        git checkout --quiet ${{ github.event.pull_request.base.sha }}
+        ripplet init . --quiet
+        ripplet index . --quiet
+        git checkout --quiet ${{ github.event.pull_request.head.sha }}
+
+    - name: Review
+      id: review
+      shell: bash
+      run: |
+        base=${{ github.event.pull_request.base.sha }}
+        ripplet review . --base "$base" --format sarif --out ripplet.sarif --fail-on never
+        ripplet review . --base "$base" --format markdown --out ripplet.md --fail-on never
+        set +e
+        ripplet review . --base "$base" --format json --out ripplet.json --fail-on "${{ inputs.fail-on }}"
+        echo "status=$?" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF
+      if: always() && inputs.sarif == 'true' && hashFiles('ripplet.sarif') != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ripplet.sarif
+        category: ripplet
+
+    - name: Comment on the PR
+      if: always() && inputs.comment == 'true' && hashFiles('ripplet.md') != ''
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        header: ripplet-review
+        path: ripplet.md
+
+    - name: Fail on findings
+      if: steps.review.outputs.status != '0' && steps.review.outputs.status != ''
+      shell: bash
+      run: |
+        echo "Ripplet review found findings at level ${{ inputs.fail-on }} or above."
+        exit 1
