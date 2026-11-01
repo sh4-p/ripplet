@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ripplet"
-version = "0.1.3.19"
-description = "A precise, local code graph for coding agents: who calls what, what breaks, which tests to run - over MCP, CLI and a web UI"
+version = "0.1.3.20"
+description = "Change guard and refactoring engine for coding agents: catches broken callers, schema and endpoint gaps after an edit, and does rename, change-signature and move-symbol across 14 languages - local code graph, over MCP, CLI and a web UI"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "FSL-1.1-ALv2" }
 authors = [{ name = "Mehmet Emin Madanoglu" }]
 dependencies = []
-keywords = ["code graph", "code intelligence", "mcp", "coding agents", "claude code", "static analysis",
-            "impact analysis", "call graph", "refactoring"]
+keywords = ["code graph", "mcp", "coding agents", "claude code", "static analysis", "change guard",
+            "impact analysis", "call graph", "refactoring", "move symbol", "rename symbol"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
