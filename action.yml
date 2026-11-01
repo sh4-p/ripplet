@@ -42,20 +42,26 @@ runs:
         ripplet init . --quiet
         ripplet index . --quiet
         git checkout --quiet ${{ github.event.pull_request.head.sha }}
+        # files `ripplet init` wrote are not part of the PR
+        git status --porcelain --untracked-files=all | sed -n 's/^?? //p' >> .git/info/exclude
+        cp -r .ripplet "$RUNNER_TEMP/ripplet-base"
 
     - name: Review
       id: review
       shell: bash
       run: |
         base=${{ github.event.pull_request.base.sha }}
-        ripplet review . --base "$base" --format sarif --out ripplet.sarif --fail-on never
-        ripplet review . --base "$base" --format markdown --out ripplet.md --fail-on never
+        # a review updates the index to the PR, so each format starts from the base index
+        run_review() { rm -rf .ripplet; cp -r "$RUNNER_TEMP/ripplet-base" .ripplet; ripplet review . --base "$base" "$@"; }
+        run_review --format sarif --out ripplet.sarif --fail-on never
+        run_review --format markdown --out ripplet.md --fail-on never
         set +e
-        ripplet review . --base "$base" --format json --out ripplet.json --fail-on "${{ inputs.fail-on }}"
+        run_review --format json --out ripplet.json --fail-on "${{ inputs.fail-on }}"
         echo "status=$?" >> "$GITHUB_OUTPUT"
 
     - name: Upload SARIF
       if: always() && inputs.sarif == 'true' && hashFiles('ripplet.sarif') != ''
+      continue-on-error: true   # needs Code Scanning (private repos: GitHub Advanced Security and `actions: read`)
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: ripplet.sarif
