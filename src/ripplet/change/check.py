@@ -120,6 +120,37 @@ def _attrs(raw):
 _NO_IMPLICIT_THIS = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".go")
 
 
+def _call_arity(roots, rel: str, line: int, name: str):
+    """Number of arguments the call to `name` at rel:line passes, read from the file; None when it cannot be
+    told (no call there, spread/star arguments, unreadable)."""
+    from .signature import scan_args
+    for r in roots:
+        p = Path(r) / rel
+        if not p.is_file():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        lines = text.splitlines(keepends=True)
+        if not 1 <= line <= len(lines):
+            return None
+        lo = sum(len(x) for x in lines[:line - 1])
+        hi = lo + sum(len(x) for x in lines[line - 1:line + 5])
+        call = re.compile(r"(?<![\w$])" + re.escape(name) + r"\s*\(")
+        m = call.search(text, lo, hi)
+        if not m:
+            return None
+        scanned = scan_args(text, m.end() - 1, p.suffix.lower())
+        if scanned is None:
+            return None
+        parts = [text[a:b].strip() for a, b in scanned[0]]
+        if any(x.startswith(("*", "...")) for x in parts):
+            return None
+        return len(parts)
+    return None
+
+
 def _symbols_in(cx, files: set) -> dict:
     """qn -> {id, type, file, line, end, pmin, pmax} for symbols in `files`."""
     out = {}
@@ -332,6 +363,20 @@ def check_change(cfg, base: str | None = None, depth: int = 2, reindex: bool = T
                 continue      # this call already fits the new signature
             stale.append({"symbol": q, "why": f"parameters {b['pmin']}-{b['pmax']} -> {a['pmin']}-{a['pmax']}",
                           "caller": cq, "at": f"{f}:{ln}", "code": code_line(roots, f, ln)})
+        # callers inside the changed files (the declaration's own file is the common case): the call is read
+        # from the file as it is now, so only a call that really passes too few or too many arguments counts
+        seen_ = {x["at"] for x in stale}
+        for s_, t_, rel_, f_, ln_, attrs_ in g.inc.get(a["id"], ()):
+            if f_ not in rels or rel_ != "calls" or f"{f_}:{ln_}" in seen_:
+                continue
+            n_args = _call_arity(roots, f_, ln_, a.get("label") or q.rsplit(".", 1)[-1])
+            if n_args is None:
+                continue
+            if (a["pmin"] or 0) <= n_args <= (a["pmax"] if a["pmax"] is not None else n_args):
+                continue
+            stale.append({"symbol": q, "why": f"parameters {b['pmin']}-{b['pmax']} -> {a['pmin']}-{a['pmax']}",
+                          "caller": g.nodes[s_]["qn"] if s_ in g.nodes else "", "at": f"{f_}:{ln_}",
+                          "code": code_line(roots, f_, ln_)})
 
     # ---- calls in the changed code that resolve to nothing in the repo
     labels = {n["label"] for n in g.nodes.values() if n["type"] in SYMBOL_TYPES}
