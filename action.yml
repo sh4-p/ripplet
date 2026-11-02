@@ -13,8 +13,8 @@ inputs:
     description: "Post the Markdown report as a sticky PR comment (needs pull-requests: write)"
     default: "true"
   sarif:
-    description: "Upload SARIF so findings show on the PR diff (needs security-events: write)"
-    default: "true"
+    description: "Upload SARIF so findings show on the PR diff (needs Code Scanning and security-events: write; private repos need GitHub Advanced Security)"
+    default: "false"
   version:
     description: "Ripplet version to install, e.g. 0.1.3.20. Empty = latest"
     default: ""
@@ -59,6 +59,11 @@ runs:
         run_review --format json --out ripplet.json --fail-on "${{ inputs.fail-on }}"
         echo "status=$?" >> "$GITHUB_OUTPUT"
 
+    - name: Job summary
+      if: always() && hashFiles('ripplet.md') != ''
+      shell: bash
+      run: cat ripplet.md >> "$GITHUB_STEP_SUMMARY"
+
     - name: Upload SARIF
       if: always() && inputs.sarif == 'true' && hashFiles('ripplet.sarif') != ''
       continue-on-error: true   # needs Code Scanning (private repos: GitHub Advanced Security and `actions: read`)
@@ -69,6 +74,7 @@ runs:
 
     - name: Comment on the PR
       if: always() && inputs.comment == 'true' && hashFiles('ripplet.md') != ''
+      continue-on-error: true   # pull requests from forks get a read-only token and cannot comment
       uses: marocchino/sticky-pull-request-comment@v2
       with:
         header: ripplet-review

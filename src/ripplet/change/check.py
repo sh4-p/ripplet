@@ -359,7 +359,7 @@ def check_change(cfg, base: str | None = None, depth: int = 2, reindex: bool = T
             # (a near-miss of a repo symbol name): typos and removed helpers
             if a.get("bare"):
                 continue      # Ruby bare name: maybe a local the extractor cannot see
-            if member in _BUILTIN_CALLS or (f.endswith(".py") and member in _PY_BUILTINS):
+            if member in _BUILTIN_CALLS or member in _TEST_GLOBALS or (f.endswith(".py") and member in _PY_BUILTINS):
                 continue      # `super().x()`, `print(...)`: the language's own names
             if member and len(member) >= 5 and member in text and member not in labels \
                     and not _declared_in(roots, f, member):
@@ -546,6 +546,9 @@ def site_line(roots, rel: str, line: int, name: str, window: int = 6):
 # Names a language provides itself: a call to them is never a dangling repo call.
 _BUILTIN_CALLS = {"super", "this", "base", "self", "print", "require", "typeof", "sizeof",
                   "nameof", "assert", "isinstance", "getattr", "setattr", "hasattr"}
+# globals a test runner injects (vitest / jest / mocha / bun): never repo symbols
+_TEST_GLOBALS = {"expect", "describe", "it", "test", "vi", "jest", "beforeEach", "afterEach", "beforeAll",
+                 "afterAll", "suite", "before", "after", "xit", "xdescribe", "fdescribe", "fit", "mock", "spyOn"}
 try:
     import builtins as _bi
     _PY_BUILTINS = set(dir(_bi))

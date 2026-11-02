@@ -24,7 +24,8 @@ import re
 from pathlib import Path
 
 SEVERITY_ORDER = {"error": 3, "warning": 2, "note": 1}
-_PRIVATE = re.compile(r"(^_|\.\_|^test|\.test|Test$|Tests$)")
+_PRIVATE = re.compile(r"(^_|\.\_|^test|\.test|Test$|Tests$|^Test[A-Z_0-9]|^Benchmark[A-Z_0-9]|^Example[A-Z_0-9])")
+_TESTQN = re.compile(r"(_test\.|\.test\.|\.spec\.|(^|\.)tests?\.)")
 
 
 def _loc(at: str):
@@ -55,7 +56,7 @@ def build_review(cfg, base: str, depth: int = 2, task: str = "") -> dict:
             + ("removed or renamed." if s["why"] == "removed or renamed" else f"changed ({s['why']})."),
             s.get("code", ""))
     for r in report.get("replacement_gaps") or []:
-        add("error", "missed-replacement", r["at"],
+        add("warning", "missed-replacement", r["at"],   # intent, not proof: another caller may need the old one
             f"Still calls {short(r['old'])}; this change replaced it with {short(r['new'])} elsewhere "
             f"(e.g. in {short(r['switched'][0])}).", r.get("code", ""))
     for x in report.get("schema_gaps") or []:
@@ -103,7 +104,7 @@ def build_review(cfg, base: str, depth: int = 2, task: str = "") -> dict:
                     f"Public {n['type']} {short(q)} changed parameters {sc['before']} -> {sc['after']}; "
                     f"{len(users)} place(s) depend on it.")
         for q in sorted(removed):
-            if not _PRIVATE.search(q.rsplit(".", 1)[-1]):
+            if not _PRIVATE.search(q.rsplit(".", 1)[-1]) and not _TESTQN.search(q):
                 # no location in the new tree: reported without one (SARIF skips it)
                 add("warning", "api-removed", "(removed):0",
                     f"Public symbol {short(q)} was removed or renamed; callers outside the change are listed as errors.")
@@ -126,14 +127,21 @@ def build_review(cfg, base: str, depth: int = 2, task: str = "") -> dict:
 
 
 def to_markdown(r: dict, max_per_rule: int = 15) -> str:
+    """Errors first and open; warnings and notes folded away, so the comment stays short on a clean PR."""
     if r.get("error"):
         return f"**Ripplet review** could not run: {r['error']}"
     c = r["counts"]
-    head = (f"### Ripplet review against `{r['base']}`\n"
-            f"{len(r['files'])} file(s) changed. **{c['error']} error(s)**, {c['warning']} warning(s), "
-            f"{c['note']} note(s).\n")
-    if not r["findings"]:
-        head += "\nNo issues found: every caller, replacement and schema use is consistent with the change.\n"
+    base = str(r["base"])[:10]
+    n_files = len(r["files"])
+    if c["error"]:
+        verdict = f":x: **{c['error']} problem(s) the change left behind**"
+    elif c["warning"] or c["note"]:
+        verdict = ":white_check_mark: **Nothing left behind.** Some points to look at below."
+    else:
+        verdict = (":white_check_mark: **Nothing left behind.** Every caller, replacement and schema use "
+                   "is consistent with the change.")
+    head = (f"### Ripplet review\n{verdict}\n\n<sub>{n_files} file(s) changed against `{base}` · "
+            f"{c['error']} error(s), {c['warning']} warning(s), {c['note']} note(s)</sub>\n")
     titles = {"stale-caller": "Callers left on the old symbol or signature",
               "missed-replacement": "Places still calling what this change replaced",
               "schema-break": "Code using a dropped or renamed column/table",
@@ -141,23 +149,43 @@ def to_markdown(r: dict, max_per_rule: int = 15) -> str:
               "api-signature": "Public API signature changes", "api-removed": "Public API removals",
               "untested-change": "Changed code no test reaches",
               "endpoint-callers": "Callers of changed endpoints",
+              "rule-violation": "Architecture rule violations",
+              "rules-file": "Architecture rules file",
+              "rule-matches-nothing": "Architecture rules that match nothing",
+              "unrelated-change": "Changes the task does not lead to",
               "possible-pattern-gap": "Possible pattern gaps (unverified)"}
     icon = {"error": ":x:", "warning": ":warning:", "note": ":information_source:"}
     out = [head]
-    order = list(titles)
-    for rule in order:
-        fs = [f for f in r["findings"] if f["rule"] == rule]
-        if not fs:
-            continue
-        out.append(f"\n**{icon[fs[0]['severity']]} {titles[rule]} ({len(fs)})**\n")
-        for f in fs[:max_per_rule]:
+
+    def section(fs, cap):
+        lines = []
+        for f in fs[:cap]:
             loc = f"`{f['file']}:{f['line']}`" if f["line"] else ""
-            out.append(f"- {loc} {f['message']}" + (f"\n  `{f['code'][:160]}`" if f.get("code") else ""))
-        if len(fs) > max_per_rule:
-            out.append(f"- ... {len(fs) - max_per_rule} more")
+            lines.append(f"- {loc} {f['message']}" + (f"\n  `{f['code'][:160]}`" if f.get("code") else ""))
+        if len(fs) > cap:
+            lines.append(f"- ... {len(fs) - cap} more")
+        return lines
+
+    rules = list(titles) + sorted({f["rule"] for f in r["findings"]} - set(titles))
+    for sev in ("error", "warning", "note"):
+        for rule in rules:
+            fs = [f for f in r["findings"] if f["rule"] == rule and f["severity"] == sev]
+            if not fs:
+                continue
+            title = f"{icon[sev]} {titles.get(rule, rule)} ({len(fs)})"
+            if sev == "error":
+                out.append(f"\n**{title}**\n")
+                out.extend(section(fs, max_per_rule))
+            else:
+                out.append(f"\n<details><summary>{title}</summary>\n")
+                out.extend(section(fs, 8 if sev == "warning" else 5))
+                out.append("\n</details>")
     if r["tests"]["commands"]:
-        out.append(f"\n**Tests that reach this change ({r['tests']['total']})**\n")
+        out.append(f"\n<details><summary>Tests that reach this change ({r['tests']['total']})</summary>\n")
         out.extend(f"```\n{cmd}\n```" for cmd in r["tests"]["commands"][:3])
+        out.append("\n</details>")
+    out.append("\n<sub>Evidence-based review by [Ripplet](https://github.com/sh4-p/ripplet): "
+               "no LLM, every finding has a file and line.</sub>")
     return "\n".join(out) + "\n"
 
 

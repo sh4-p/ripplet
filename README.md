@@ -150,13 +150,13 @@ ripplet arch                    # architecture rules in ripplet.arch.yaml
 ripplet ui .                    # browse the graph
 ```
 
-**GitHub Action.** Reviews every pull request with proof and no LLM: findings show
-on the diff (SARIF) and as one sticky comment.
+**GitHub Action.** Reviews every pull request with proof and no LLM: findings appear
+as one sticky comment (also in the job summary, for forks), and on the diff as annotations with `sarif: true`.
 
 ```yaml
 # .github/workflows/ripplet.yml
 on: pull_request
-permissions: { contents: read, pull-requests: write, security-events: write }
+permissions: { contents: read, pull-requests: write }
 jobs:
   review:
     runs-on: ubuntu-latest
@@ -165,6 +165,7 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: sh4-p/ripplet@v1
         # with: { fail-on: error }   # error | warning | note | never
+        # with: { sarif: true }      # annotations on the diff; needs Code Scanning + security-events: write
 ```
 
 | Agent | Always-on guidance | Enforcement |
