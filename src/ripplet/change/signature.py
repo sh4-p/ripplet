@@ -114,6 +114,41 @@ def _open_paren(text: str, name_end: int):
     return j if j < len(text) and text[j] == "(" else None
 
 
+_ARROW_HEAD = re.compile(r"\s*(?::[^=;(){}]*?)?\s*=\s*(?:async\s+)?")
+_ARROW_TAIL = re.compile(r"\s*(?::[^;{}=]*?)?\s*=>")
+
+
+def _arrow_paren(text: str, name_end: int, ext: str):
+    """`const f = (a, b) =>` / `const f: T = async <X>(a) =>` (TS/JS): index of the `(` of the arrow's
+    parameter list, only when an `=>` follows its closing paren; else None."""
+    if ext not in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"):
+        return None
+    m = _ARROW_HEAD.match(text, name_end)
+    if not m:
+        return None
+    j = m.end()
+    if j < len(text) and text[j] == '<':
+        depth = 0
+        k = j
+        while k < len(text) and k - j < 240:
+            depth += (text[k] == '<') - (text[k] == '>' and text[k - 1] != '=')
+            if depth == 0:
+                break
+            k += 1
+        else:
+            return None
+        j = k + 1
+    while j < len(text) and text[j].isspace():
+        j += 1
+    if j >= len(text) or text[j] != '(':
+        return None
+    o = j
+    scanned = scan_args(text, o, ext)
+    if scanned is None or not _ARROW_TAIL.match(text, scanned[1] + 1):
+        return None
+    return o
+
+
 def _param_names_index(params: list, texts: list, name: str):
     """Index of the declared parameter called `name`, counting from the first non-receiver parameter."""
     skip = 1 if texts and texts[0].strip() in _SELF else 0
@@ -273,6 +308,8 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
                 if _comment_line(text, m.start()):
                     continue
                 o = _open_paren(text, m.end())
+                if o is None:
+                    o = _arrow_paren(text, m.end(), ext)
                 if o is not None:
                     found = (m, o)
                     break
@@ -337,6 +374,10 @@ def change_signature(store, cfg, symbol: str, add_param: dict | None = None, rem
         if not skipped:
             return "change_signature: the order already is the one asked for, nothing to change."
         return "\n".join(["change_signature: no declaration could be reordered; nothing was written."] + skipped[:10])
+    if (add_param or remove_param) and not report_decl:
+        # call sites without their declaration would leave the code not compiling: write nothing
+        return "\n".join(["change_signature: no declaration could be edited, so nothing was written "
+                          "(editing only the call sites would break them)."] + skipped[:10])
     for rel in sorted(call_lines) if (op_call is not None or remove_param or reorder) else ():
         loaded = load(rel)
         if loaded is None:

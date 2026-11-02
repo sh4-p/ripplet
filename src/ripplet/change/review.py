@@ -38,7 +38,7 @@ def _loc(at: str):
 
 def build_review(cfg, base: str, depth: int = 2, task: str = "") -> dict:
     from ..storage.sqlite_store import SQLiteStore
-    from .check import _G, _tests, check_change
+    from .check import _G, _attrs, _tests, check_change
     report = check_change(cfg, base=base, depth=depth, task=task)
     if report.get("error"):
         return {"base": base, "error": report["error"], "findings": [], "report": report}
@@ -108,12 +108,24 @@ def build_review(cfg, base: str, depth: int = 2, task: str = "") -> dict:
                 # no location in the new tree: reported without one (SARIF skips it)
                 add("warning", "api-removed", "(removed):0",
                     f"Public symbol {short(q)} was removed or renamed; callers outside the change are listed as errors.")
+        # names that tests call without the graph being able to prove the receiver (`resp.json()`): a changed
+        # method of that name is probably tested, so it is not reported as untested
+        test_called = set()
+        for nid_, n_ in g.nodes.items():
+            if g.is_test(nid_):
+                for _s, _t, rel_, _f, _ln, at_ in g.out.get(nid_, ()):
+                    if rel_ == 'calls_unresolved':
+                        a_ = _attrs(at_)
+                        test_called.add(a_.get('member') or str(a_.get('unresolved_call') or '').rsplit('.', 1)[-1])
+        test_called.discard('')
         # changed functions/methods that no test reaches
         for nid in report.get("changed_ids") or []:
             n = g.nodes.get(nid)
             if not n or n["type"] not in ("function", "method") or g.is_test(nid):
                 continue
             # private helpers count too: a bug there is still a bug
+            if n['label'] in test_called:
+                continue
             if not _tests(g, [nid], depth=4):
                 add("warning", "untested-change", f"{n['file']}:{n['line']}",
                     f"{n['type'].capitalize()} {short(n['qn'])} changed and no test reaches it.")

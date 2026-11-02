@@ -116,6 +116,10 @@ def _attrs(raw):
         return {}
 
 
+# languages where a method can only be called through a receiver (`obj.m()`), never as a bare name
+_NO_IMPLICIT_THIS = (".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".go")
+
+
 def _symbols_in(cx, files: set) -> dict:
     """qn -> {id, type, file, line, end, pmin, pmax} for symbols in `files`."""
     out = {}
@@ -277,6 +281,9 @@ def check_change(cfg, base: str | None = None, depth: int = 2, reindex: bool = T
             # the untouched caller must still name the old symbol on that line
             # (or a few lines lower, for a call chained over several lines)
             site = site_line(roots, f, ln, old_name)
+            if site and before[q].get("type") == "method" and f.endswith(_NO_IMPLICIT_THIS) and \
+                    not re.search(r"\.\s*" + re.escape(old_name) + r"(?![\w$])", site[1]):
+                continue      # a bare `send(...)` here is a parameter or local, not the method `Cls.send`
             if site and (f, site[0], q) not in stale_seen:
                 stale_seen.add((f, site[0], q))
                 stale.append({"symbol": q, "why": "removed or renamed", "caller": cq,
